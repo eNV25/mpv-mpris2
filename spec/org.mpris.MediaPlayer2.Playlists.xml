@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<node name="/Playlists_Interface">
+  <interface name="org.mpris.MediaPlayer2.Playlists">
+    <method name="ActivatePlaylist">
+      <arg direction="in" name="PlaylistId" type="o">
+      </arg>
+    </method>
+    <method name="GetPlaylists">
+      <arg direction="in" name="Index" type="u">
+      </arg>
+      <arg direction="in" name="MaxCount" type="u">
+      </arg>
+      <arg direction="in" name="Order" type="s">
+      </arg>
+      <arg direction="in" name="ReverseOrder" type="b">
+      </arg>
+      <arg direction="out" name="Playlists" type="a(oss)">
+      </arg>
+    </method>
+    <property name="PlaylistCount" type="u" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="true"/>
+    </property>
+    <property name="Orderings" type="as" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="true"/>
+    </property>
+    <property name="ActivePlaylist" type="(b(oss))" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="true"/>
+    </property>
+    <signal name="PlaylistChanged">
+      <arg name="Playlist" type="(oss)">
+      </arg>
+    </signal>
+  </interface>
+</node>
+<!-- vim:set sw=2 sts=2 et ft=xml: -->

@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<node name="/Track_List_Interface">
+  <interface name="org.mpris.MediaPlayer2.TrackList">
+    <method name="GetTracksMetadata">
+      <arg direction="in" name="TrackIds" type="ao">
+      </arg>
+      <arg direction="out" type="aa{sv}" name="Metadata">
+      </arg>
+    </method>
+    <method name="AddTrack">
+      <arg direction="in" type="s" name="Uri">
+      </arg>
+      <arg direction="in" type="o" name="AfterTrack">
+      </arg>
+      <arg direction="in" type="b" name="SetAsCurrent">
+      </arg>
+    </method>
+    <method name="RemoveTrack">
+      <arg direction="in" type="o" name="TrackId">
+      </arg>
+    </method>
+    <method name="GoTo">
+      <arg direction="in" type="o" name="TrackId">
+      </arg>
+    </method>
+    <property name="Tracks" type="ao" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="invalidates"/>
+    </property>
+    <property name="CanEditTracks" type="b" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="true"/>
+    </property>
+    <signal name="TrackListReplaced">
+      <arg name="Tracks" type="ao">
+      </arg>
+      <arg name="CurrentTrack" type="o">
+      </arg>
+    </signal>
+    <signal name="TrackAdded">
+      <arg type="a{sv}" name="Metadata">
+      </arg>
+      <arg type="o" name="AfterTrack">
+      </arg>
+    </signal>
+    <signal name="TrackRemoved">
+      <arg type="o" name="TrackId">
+      </arg>
+    </signal>
+    <signal name="TrackMetadataChanged">
+      <arg type="o" name="TrackId">
+      </arg>
+      <arg type="a{sv}" name="Metadata">
+      </arg>
+    </signal>
+  </interface>
+</node>
+<!-- vim:set sw=2 sts=2 et ft=xml: -->

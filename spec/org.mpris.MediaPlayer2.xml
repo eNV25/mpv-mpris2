@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<node name="/Media_Player">
+  <interface name="org.mpris.MediaPlayer2">
+    <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="true"/>
+    <method name="Raise">
+    </method>
+    <method name="Quit">
+    </method>
+    <property name="CanQuit" type="b" access="read">
+    </property>
+    <property name="Fullscreen" type="b" access="readwrite">
+      <annotation name="org.mpris.MediaPlayer2.property.optional" value="true"/>
+    </property>
+    <property name="CanSetFullscreen" type="b" access="read">
+      <annotation name="org.mpris.MediaPlayer2.property.optional" value="true"/>
+    </property>
+    <property name="CanRaise" type="b" access="read">
+    </property>
+    <property name="HasTrackList" type="b" access="read">
+    </property>
+    <property name="Identity" type="s" access="read">
+    </property>
+    <property name="DesktopEntry" type="s" access="read">
+      <annotation name="org.mpris.MediaPlayer2.property.optional" value="true"/>
+    </property>
+    <property name="SupportedUriSchemes" type="as" access="read">
+    </property>
+    <property name="SupportedMimeTypes" type="as" access="read">
+    </property>
+  </interface>
+</node>
+<!-- vim:set sw=2 sts=2 et ft=xml: -->
