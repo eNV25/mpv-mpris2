@@ -1,5 +1,4 @@
 use std::{
-    error,
     ffi::{c_int, CStr},
     process,
 };
