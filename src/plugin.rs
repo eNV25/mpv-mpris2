@@ -3,7 +3,6 @@ use std::{
     process,
 };
 
-use mpris::PlayerProxy;
 use mpv::capi::{mpv_event_id::*, *};
 
 pub(crate) mod mpris;
@@ -73,7 +72,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
             }
             MPV_EVENT_PLAYBACK_RESTART if mp_seeking => smol::block_on(async {
                 mp_seeking = false;
-                _ = PlayerProxy::seeked(
+                _ = mpris::PlayerProxy::seeked(
                     player_ref.signal_context(),
                     (mpv::get_property_float!(ctx, "playback-time\0") * 1E6) as i64,
                 )
