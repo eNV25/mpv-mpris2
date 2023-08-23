@@ -208,12 +208,7 @@ impl RootProxy {
     /// CanRaise property
     #[dbus_interface(property)]
     fn can_raise(&self) -> bool {
-        true
-    }
-
-    /// Raise method
-    fn raise(&self) {
-        mpv::set_property_bool!(self.ctx(), "focused\0", true);
+        false
     }
 
     /// CanSetFullscreen property
