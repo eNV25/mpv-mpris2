@@ -6,6 +6,8 @@ and provide metadata.
 
 This implementation has been tested with KDE Plasma and `playerctl`.
 
+There is no relation [@hoyon's mpv-mpris](https://github.com/hoyon/mpv-mpris).
+
 ## Installation
 
 The plugin must be installed to the `scripts/` subdirectory of the mpv configuration
