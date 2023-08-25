@@ -1,3 +1,5 @@
+#![allow(clippy::not_unsafe_ptr_arg_deref)] // mpv_wait_event
+
 use std::{
     ffi::{c_int, CStr},
     process,

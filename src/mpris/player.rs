@@ -203,7 +203,7 @@ impl PlayerProxy {
             let (path, stream) = (path.to_owned(), stream.to_owned());
             if path == stream {
                 Command::new("ffmpegthumbnailer")
-                    .args(&["-m", "-cjpeg", "-s0", "-o-", "-i"])
+                    .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
                     .arg(&stream)
                     .output()
                     .or(async {
@@ -218,7 +218,7 @@ impl PlayerProxy {
                 'ytdl: {
                     for cmd in ["yt-dlp", "yt-dlp_x86", "youtube-dl"] {
                         let thumb = Command::new(cmd)
-                            .args(&["--no-warnings", "--get-thumbnail"])
+                            .args(["--no-warnings", "--get-thumbnail"])
                             .arg(&path)
                             .output()
                             .or(async {
@@ -232,7 +232,7 @@ impl PlayerProxy {
                                     .map(|s| s.trim_matches(char::is_whitespace).to_owned())
                                     .ok()
                             });
-                        if let Some(..) = thumb {
+                        if thumb.is_some() {
                             break 'ytdl thumb;
                         }
                     }
