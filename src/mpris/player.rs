@@ -1,7 +1,7 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections, io, path, time};
 
 use data_encoding::BASE64;
-use smol::process::Command;
+use smol::{future::FutureExt, process::Command};
 use url::Url;
 use zbus::dbus_interface;
 
@@ -193,68 +193,77 @@ impl PlayerProxy {
 
     /// Metadata property
     #[dbus_interface(property)]
-    async fn metadata(&self) -> HashMap<String, zbus::zvariant::Value> {
-        let mut metadata = HashMap::new();
+    async fn metadata(&self) -> collections::HashMap<String, zbus::zvariant::Value> {
+        let mut m = collections::HashMap::new();
+
+        let path = mpv::get_property_string!(self.ctx(), "path\0");
+        let stream = mpv::get_property_string!(self.ctx(), "stream-open-filename\0");
+
+        let thumb = smol::spawn(async {
+            let (path, stream) = (path.to_owned(), stream.to_owned());
+            if path == stream {
+                Command::new("ffmpegthumbnailer")
+                    .args(&["-m", "-cjpeg", "-s0", "-o-", "-i"])
+                    .arg(&stream)
+                    .output()
+                    .or(async {
+                        smol::Timer::after(time::Duration::from_secs(1)).await;
+                        Err(io::ErrorKind::TimedOut.into())
+                    })
+                    .await
+                    .ok()
+                    .map(|output| BASE64.encode(&output.stdout))
+                    .map(|data| format!("data:image/jpeg;base64,{data}"))
+            } else {
+                'ytdl: {
+                    for cmd in ["yt-dlp", "yt-dlp_x86", "youtube-dl"] {
+                        let thumb = Command::new(cmd)
+                            .args(&["--no-warnings", "--get-thumbnail"])
+                            .arg(&path)
+                            .output()
+                            .or(async {
+                                smol::Timer::after(time::Duration::from_secs(5)).await;
+                                Err(io::ErrorKind::TimedOut.into())
+                            })
+                            .await
+                            .ok()
+                            .and_then(|output| {
+                                std::str::from_utf8(&output.stdout)
+                                    .map(|s| s.trim_matches(char::is_whitespace).to_owned())
+                                    .ok()
+                            });
+                        if let Some(..) = thumb {
+                            break 'ytdl thumb;
+                        }
+                    }
+                    None
+                }
+            }
+        });
 
         let track = match mpv::get_property_int!(self.ctx(), "playlist-playing-pos\0") {
             pos if pos.is_negative() => "/io/mpv/noplaylist".into(),
             pos => format!("/io/mpv/playlist/{}", pos),
         };
         _ = zbus::zvariant::ObjectPath::try_from(track).map(|path| {
-            metadata.insert("mpris:trackid".into(), path.into());
+            m.insert("mpris:trackid".into(), path.into());
         });
 
-        metadata.insert(
+        m.insert(
             "mpris:length".into(),
             ((mpv::get_property_float!(self.ctx(), "duration\0") * 1E6) as i64).into(),
         );
 
-        let path = mpv::get_property_string!(self.ctx(), "path\0");
-        let stream = mpv::get_property_string!(self.ctx(), "stream-open-filename\0");
-
         _ = Url::parse(path)
             .or_else(|_| {
                 Url::from_file_path(
-                    Path::new(mpv::get_property_string!(self.ctx(), "working-directory\0"))
+                    path::Path::new(mpv::get_property_string!(self.ctx(), "working-directory\0"))
                         .join(path),
                 )
             })
             .map(|url| {
-                metadata.insert("mpris:url".into(), url.as_str().to_owned().into());
+                m.insert("mpris:url".into(), url.as_str().to_owned().into());
             });
-
-        if path == stream {
-            _ = Command::new("ffmpegthumbnailer")
-                .args(&["-m", "-cjpeg", "-s0", "-o-", "-i"])
-                .arg(stream)
-                .output()
-                .await
-                .map(|output| BASE64.encode(&output.stdout))
-                .map(|data| format!("data:image/jpeg;base64,{data}"))
-                .map(|url| {
-                    metadata.insert("mpris:artUrl".into(), url.into());
-                });
-        } else {
-            for cmd in ["yt-dlp", "yt-dlp_x86", "youtube-dl"] {
-                if let Some(..) = Command::new(cmd)
-                    .arg("--get-thumbnail")
-                    .arg(path)
-                    .output()
-                    .await
-                    .ok()
-                    .and_then(|output| {
-                        std::str::from_utf8(&output.stdout)
-                            .map(|s| s.trim_matches(char::is_whitespace).to_owned())
-                            .ok()
-                    })
-                    .map(|url| {
-                        metadata.insert("mpris:artUrl".into(), url.into());
-                    })
-                {
-                    break;
-                }
-            }
-        }
 
         macro_rules! add {
             ($metadata:expr, $key:expr, $mpvkey:expr) => {
@@ -266,86 +275,54 @@ impl PlayerProxy {
             };
         }
 
-        add!(metadata, "xesam:title", "media-title\0");
-        add!(metadata, "xesam:title", "metadata/by-key/Title\0");
-        add!(metadata, "xesam:album", "metadata/by-key/Album\0");
-        add!(metadata, "xesam:genre", "metadata/by-key/Genre\0");
+        add!(m, "xesam:title", "media-title\0");
+        add!(m, "xesam:title", "metadata/by-key/Title\0");
+        add!(m, "xesam:album", "metadata/by-key/Album\0");
+        add!(m, "xesam:genre", "metadata/by-key/Genre\0");
 
-        add!(metadata, "xesam:artist", "metadata/by-key/uploader\0");
-        add!(metadata, "xesam:artist", "metadata/by-key/Artist\0");
-        add!(
-            metadata,
-            "xesam:albumArtist",
-            "metadata/by-key/Album_Artist\0"
-        );
-        add!(metadata, "xesam:composer", "metadata/by-key/Composer\0");
+        add!(m, "xesam:artist", "metadata/by-key/uploader\0");
+        add!(m, "xesam:artist", "metadata/by-key/Artist\0");
+        add!(m, "xesam:albumArtist", "metadata/by-key/Album_Artist\0");
+        add!(m, "xesam:composer", "metadata/by-key/Composer\0");
 
-        add!(metadata, "xesam:trackNumber", "metadata/by-key/Track\0");
-        add!(metadata, "xesam:discNumber", "metadata/by-key/Disc\0");
+        add!(m, "xesam:trackNumber", "metadata/by-key/Track\0");
+        add!(m, "xesam:discNumber", "metadata/by-key/Disc\0");
 
+        add!(m, "mb:artistId", "metadata/by-key/MusicBrainz Artist Id\0");
+        add!(m, "mb:trackId", "metadata/by-key/MusicBrainz Track Id\0");
         add!(
-            metadata,
-            "mb:artistId",
-            "metadata/by-key/MusicBrainz Artist Id\0"
-        );
-        add!(
-            metadata,
-            "mb:trackId",
-            "metadata/by-key/MusicBrainz Track Id\0"
-        );
-        add!(
-            metadata,
+            m,
             "mb:albumArtistId",
             "metadata/by-key/MusicBrainz Album Artist Id\0"
         );
+        add!(m, "mb:albumId", "metadata/by-key/MusicBrainz Album Id\0");
         add!(
-            metadata,
-            "mb:albumId",
-            "metadata/by-key/MusicBrainz Album Id\0"
-        );
-        add!(
-            metadata,
+            m,
             "mb:releaseTrackId",
             "metadata/by-key/MusicBrainz Release Track Id\0"
         );
-        add!(
-            metadata,
-            "mb:workId",
-            "metadata/by-key/MusicBrainz Work Id\0"
-        );
+        add!(m, "mb:workId", "metadata/by-key/MusicBrainz Work Id\0");
 
+        add!(m, "mb:artistId", "metadata/by-key/MUSICBRAINZ_ARTISTID\0");
+        add!(m, "mb:trackId", "metadata/by-key/MUSICBRAINZ_TRACKID\0");
         add!(
-            metadata,
-            "mb:artistId",
-            "metadata/by-key/MUSICBRAINZ_ARTISTID\0"
-        );
-        add!(
-            metadata,
-            "mb:trackId",
-            "metadata/by-key/MUSICBRAINZ_TRACKID\0"
-        );
-        add!(
-            metadata,
+            m,
             "mb:albumArtistId",
             "metadata/by-key/MUSICBRAINZ_ALBUMARTISTID\0"
         );
+        add!(m, "mb:albumId", "metadata/by-key/MUSICBRAINZ_ALBUMID\0");
         add!(
-            metadata,
-            "mb:albumId",
-            "metadata/by-key/MUSICBRAINZ_ALBUMID\0"
-        );
-        add!(
-            metadata,
+            m,
             "mb:releaseTrackId",
             "metadata/by-key/MUSICBRAINZ_RELEASETRACKID\0"
         );
-        add!(
-            metadata,
-            "mb:workId",
-            "metadata/by-key/MUSICBRAINZ_WORKID\0"
-        );
+        add!(m, "mb:workId", "metadata/by-key/MUSICBRAINZ_WORKID\0");
 
-        metadata
+        thumb
+            .await
+            .map(|url| m.insert("mpris:artUrl".into(), url.into()));
+
+        m
     }
 
     /// Volume property

@@ -16,12 +16,13 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     }
     let pid = process::id();
     let connection = smol::block_on(async {
-        zbus::Result::Ok(zbus::ConnectionBuilder::session()?
+        let connection = zbus::ConnectionBuilder::session()?
             .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
             .serve_at("/org/mpris/MediaPlayer2", mpris::RootProxy::from(ctx))?
             .serve_at("/org/mpris/MediaPlayer2", mpris::PlayerProxy::from(ctx))?
             .build()
-            .await?)
+            .await?;
+        zbus::Result::Ok(connection)
     })
     .expect("dbus session connection and server setup");
 
