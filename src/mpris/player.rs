@@ -114,8 +114,7 @@ impl PlayerProxy {
     fn playback_status(&self) -> &str {
         if mpv::get_property_bool!(self.ctx(), "idle-active\0")
             || (mpv::get_property_string!(self.ctx(), "keep-open\0") != "no"
-                && (mpv::get_property_int!(self.ctx(), "percent-pos\0") == 100
-                    || mpv::get_property_int!(self.ctx(), "duration\0") == 0))
+                && mpv::get_property_bool!(self.ctx(), "eof-reached\0"))
         {
             "Stopped"
         } else if mpv::get_property_bool!(self.ctx(), "pause\0") {
