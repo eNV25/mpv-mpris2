@@ -251,15 +251,11 @@ impl PlayerProxy {
             serde_json::from_str(data).unwrap_or_default();
         for (key, value) in data {
             let integer = || -> i64 {
-                let n = path::Path::new(value.as_str());
-                match n.components().next() {
-                    Some(path::Component::Normal(n)) => n,
-                    _ => n.as_os_str(),
-                }
-                .to_str()
-                .unwrap_or_default()
-                .parse()
-                .unwrap_or_default()
+                value
+                    .find('/')
+                    .map_or_else(|| &value[..], |x| &value[..x])
+                    .parse()
+                    .unwrap_or_default()
             };
             match key.to_ascii_lowercase().as_str() {
                 "album" => m.insert("xesam:album", value.into()),
