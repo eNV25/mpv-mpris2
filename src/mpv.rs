@@ -75,14 +75,6 @@ macro_rules! get_property_bool {
 }
 pub(crate) use get_property_bool;
 
-macro_rules! get_property_int {
-    ($ctx:expr, $prop:expr) => {{
-        use $crate::mpv::{get_property, MPV_FORMAT_INT64};
-        get_property!($ctx, $prop, MPV_FORMAT_INT64, i64)
-    }};
-}
-pub(crate) use get_property_int;
-
 macro_rules! get_property_float {
     ($ctx:expr, $prop:expr) => {{
         use $crate::mpv::{get_property, MPV_FORMAT_DOUBLE};
@@ -98,11 +90,11 @@ macro_rules! get_property_string {
         let (ctx, prop) = ($ctx, $prop.as_ptr().cast());
         let cstr = unsafe { mpv_get_property_string(ctx, prop) };
         if cstr.is_null() {
-            ""
+            None
         } else {
             scopeguard::guard(unsafe { CStr::from_ptr(cstr) }, |v| free!(v.as_ptr()))
                 .to_str()
-                .unwrap_or_default()
+                .ok()
         }
     }};
 }

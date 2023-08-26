@@ -113,8 +113,7 @@ impl PlayerProxy {
     #[dbus_interface(property)]
     fn playback_status(&self) -> &str {
         if mpv::get_property_bool!(self.ctx(), "idle-active\0")
-            || (mpv::get_property_string!(self.ctx(), "keep-open\0") != "no"
-                && mpv::get_property_bool!(self.ctx(), "eof-reached\0"))
+            || mpv::get_property_bool!(self.ctx(), "eof-reached\0")
         {
             "Stopped"
         } else if mpv::get_property_bool!(self.ctx(), "pause\0") {
@@ -127,9 +126,10 @@ impl PlayerProxy {
     /// LoopStatus property
     #[dbus_interface(property)]
     fn loop_status(&self) -> &str {
-        if mpv::get_property_string!(self.ctx(), "loop-file\0") != "no" {
+        if matches!(mpv::get_property_string!(self.ctx(), "loop-file\0"), Some(v) if v != "no") {
             "Track"
-        } else if mpv::get_property_string!(self.ctx(), "loop-playlist\0") != "no" {
+        } else if matches!(mpv::get_property_string!(self.ctx(), "loop-playlist\0"), Some(v) if v != "no")
+        {
             "Playlist"
         } else {
             "None"
@@ -192,11 +192,11 @@ impl PlayerProxy {
 
     /// Metadata property
     #[dbus_interface(property)]
-    async fn metadata(&self) -> collections::HashMap<String, zbus::zvariant::Value> {
-        let mut m = collections::HashMap::new();
-
-        let path = mpv::get_property_string!(self.ctx(), "path\0");
-        let stream = mpv::get_property_string!(self.ctx(), "stream-open-filename\0");
+    async fn metadata(&self) -> collections::HashMap<&str, zbus::zvariant::Value> {
+        let (path, stream) = (
+            mpv::get_property_string!(self.ctx(), "path\0").unwrap_or_default(),
+            mpv::get_property_string!(self.ctx(), "stream-open-filename\0").unwrap_or_default(),
+        );
 
         let thumb = smol::spawn(async {
             let (path, stream) = (path.to_owned(), stream.to_owned());
@@ -228,7 +228,7 @@ impl PlayerProxy {
                             .ok()
                             .and_then(|output| {
                                 std::str::from_utf8(&output.stdout)
-                                    .map(|s| s.trim_matches(char::is_whitespace).to_owned())
+                                    .map(|s| s.trim().to_owned())
                                     .ok()
                             });
                         if thumb.is_some() {
@@ -240,86 +240,65 @@ impl PlayerProxy {
             }
         });
 
-        let track = match mpv::get_property_int!(self.ctx(), "playlist-playing-pos\0") {
-            pos if pos.is_negative() => "/io/mpv/noplaylist".into(),
-            pos => format!("/io/mpv/playlist/{}", pos),
-        };
-        _ = zbus::zvariant::ObjectPath::try_from(track).map(|path| {
-            m.insert("mpris:trackid".into(), path.into());
-        });
+        let mut m = collections::HashMap::new();
 
-        m.insert(
-            "mpris:length".into(),
-            ((mpv::get_property_float!(self.ctx(), "duration\0") * 1E6) as i64).into(),
-        );
+        if let Some(s) = mpv::get_property_string!(self.ctx(), "media-title\0") {
+            m.insert("xesam:title", s.to_owned().into());
+        }
 
-        _ = Url::parse(path)
-            .or_else(|_| {
-                Url::from_file_path(
-                    path::Path::new(mpv::get_property_string!(self.ctx(), "working-directory\0"))
-                        .join(path),
-                )
-            })
-            .map(|url| {
-                m.insert("mpris:url".into(), url.as_str().to_owned().into());
-            });
-
-        macro_rules! add {
-            ($metadata:expr, $key:expr, $mpvkey:expr) => {
-                if let Some(value) =
-                    Some(mpv::get_property_string!(self.ctx(), $mpvkey)).filter(|s| !s.is_empty())
-                {
-                    $metadata.insert($key.into(), value.to_owned().into());
+        let data = mpv::get_property_string!(self.ctx(), "metadata\0").unwrap_or_default();
+        let data: collections::HashMap<&str, String> =
+            serde_json::from_str(data).unwrap_or_default();
+        for (key, value) in data {
+            let integer = || -> i64 {
+                let n = path::Path::new(value.as_str());
+                match n.components().next() {
+                    Some(path::Component::Normal(n)) => n,
+                    _ => n.as_os_str(),
                 }
+                .to_str()
+                .unwrap_or_default()
+                .parse()
+                .unwrap_or_default()
+            };
+            match key.to_ascii_lowercase().as_str() {
+                "album" => m.insert("xesam:album", value.into()),
+                "title" => m.insert("xesam:title", value.into()),
+                "album_artist" => m.insert("xesam:albumArtist", vec![value].into()),
+                "artist" => m.insert("xesam:artist", vec![value].into()),
+                "comment" => m.insert("xesam:comment", vec![value].into()),
+                "composer" => m.insert("xesam:composer", vec![value].into()),
+                "genre" => m.insert("xesam:genre", vec![value].into()),
+                "lyricist" => m.insert("xesam:lyricist", vec![value].into()),
+                "tbp" | "tbpm" | "bpm" => m.insert("xesam:audioBPM", integer().into()),
+                "disc" => m.insert("xesam:discNumber", integer().into()),
+                "track" => m.insert("xesam:trackNumber", integer().into()),
+                lyrics if lyrics.strip_prefix("lyrics").is_some() => {
+                    m.insert("xesam:asText", value.into())
+                }
+                _ => None,
             };
         }
 
-        add!(m, "xesam:title", "media-title\0");
-        add!(m, "xesam:title", "metadata/by-key/Title\0");
-        add!(m, "xesam:album", "metadata/by-key/Album\0");
-        add!(m, "xesam:genre", "metadata/by-key/Genre\0");
+        if let Ok(path) = zbus::zvariant::ObjectPath::try_from("/io/mpv") {
+            m.insert("mpris:trackid", path.into());
+        }
 
-        add!(m, "xesam:artist", "metadata/by-key/uploader\0");
-        add!(m, "xesam:artist", "metadata/by-key/Artist\0");
-        add!(m, "xesam:albumArtist", "metadata/by-key/Album_Artist\0");
-        add!(m, "xesam:composer", "metadata/by-key/Composer\0");
-
-        add!(m, "xesam:trackNumber", "metadata/by-key/Track\0");
-        add!(m, "xesam:discNumber", "metadata/by-key/Disc\0");
-
-        add!(m, "mb:artistId", "metadata/by-key/MusicBrainz Artist Id\0");
-        add!(m, "mb:trackId", "metadata/by-key/MusicBrainz Track Id\0");
-        add!(
-            m,
-            "mb:albumArtistId",
-            "metadata/by-key/MusicBrainz Album Artist Id\0"
+        m.insert(
+            "mpris:length",
+            ((mpv::get_property_float!(self.ctx(), "duration\0") * 1E6) as i64).into(),
         );
-        add!(m, "mb:albumId", "metadata/by-key/MusicBrainz Album Id\0");
-        add!(
-            m,
-            "mb:releaseTrackId",
-            "metadata/by-key/MusicBrainz Release Track Id\0"
-        );
-        add!(m, "mb:workId", "metadata/by-key/MusicBrainz Work Id\0");
 
-        add!(m, "mb:artistId", "metadata/by-key/MUSICBRAINZ_ARTISTID\0");
-        add!(m, "mb:trackId", "metadata/by-key/MUSICBRAINZ_TRACKID\0");
-        add!(
-            m,
-            "mb:albumArtistId",
-            "metadata/by-key/MUSICBRAINZ_ALBUMARTISTID\0"
-        );
-        add!(m, "mb:albumId", "metadata/by-key/MUSICBRAINZ_ALBUMID\0");
-        add!(
-            m,
-            "mb:releaseTrackId",
-            "metadata/by-key/MUSICBRAINZ_RELEASETRACKID\0"
-        );
-        add!(m, "mb:workId", "metadata/by-key/MUSICBRAINZ_WORKID\0");
+        if let Some(url) = Url::parse(path).ok().or_else(|| {
+            mpv::get_property_string!(self.ctx(), "working-directory\0")
+                .and_then(|dir| Url::from_file_path(path::Path::new(dir).join(path)).ok())
+        }) {
+            m.insert("mpris:url", url.as_str().to_owned().into());
+        }
 
-        thumb
-            .await
-            .map(|url| m.insert("mpris:artUrl".into(), url.into()));
+        if let Some(url) = thumb.await {
+            m.insert("mpris:artUrl", url.into());
+        }
 
         m
     }
@@ -342,14 +321,7 @@ impl PlayerProxy {
     }
 
     // SetPosition method
-    fn set_position(&self, track_id: zbus::zvariant::ObjectPath<'_>, position: i64) {
-        _ = track_id
-            .as_str()
-            .strip_prefix("/io/mpv/playlist/")
-            .and_then(|s| s.parse::<i64>().ok())
-            .filter(|&track| track == mpv::get_property_int!(self.ctx(), "playlist-playing-pos\0"))
-            .map(|_| {
-                mpv::set_property_float!(self.ctx(), "playback-time\0", (position as f64) / 1E6);
-            });
+    fn set_position(&self, _track_id: zbus::zvariant::ObjectPath<'_>, position: i64) {
+        mpv::set_property_float!(self.ctx(), "playback-time\0", (position as f64) / 1E6);
     }
 }

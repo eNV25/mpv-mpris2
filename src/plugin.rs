@@ -63,7 +63,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     let mut mp_seeking = false;
     loop {
         let ev = unsafe { mpv_wait_event(ctx, -1.0).as_ref().unwrap_unchecked() };
-        if ev.reply_userdata != Default::default() && ev.reply_userdata != mpv::REPLY_USERDATA {
+        if ev.reply_userdata != u64::default() && ev.reply_userdata != mpv::REPLY_USERDATA {
             continue;
         }
         match ev.event_id {

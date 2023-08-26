@@ -188,6 +188,7 @@ impl RootProxy {
         static URI_SCHEMES: sync::OnceLock<Vec<String>> = sync::OnceLock::new();
         URI_SCHEMES.get_or_init(|| {
             mpv::get_property_string!(self.ctx(), "protocol-list\0")
+                .unwrap_or_default()
                 .split(',')
                 .map(str::to_owned)
                 .collect()
