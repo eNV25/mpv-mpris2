@@ -23,6 +23,7 @@ build *args="":
 
 install: (build "--release")
 	install -v -D target/release/libmpv_mpris2.so "${prefix}/lib/mpv-mpris2/mpris.so"
+	strip --strip-unneeded "${prefix}/lib/mpv-mpris2/mpris.so"
 	mkdir -p "${config_system}/mpv/scripts/"
 	ln -v -s -t "${config_system}/mpv/scripts/" "${prefix}/lib/mpv-mpris2/mpris.so"
 
@@ -32,6 +33,7 @@ uninstall:
 
 install-user: (build "--release")
 	install -v -D target/release/libmpv_mpris2.so "${config_user}/mpv/scripts/mpris.so"
+	strip --strip-unneeded "${config_user}/mpv/scripts/mpris.so"
 
 uninstall-user:
 	rm "${config_user}/mpv/scripts/mpris.so"
