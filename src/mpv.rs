@@ -27,41 +27,28 @@ pub(crate) use assert_cstr;
 macro_rules! command {
     ($ctx:expr, $($arg:expr),+ $(,)?) => {{
         use $crate::mpv::{assert_cstr,REPLY_USERDATA,capi::mpv_command_async};
-        use $crate::ptr;
-        let (ctx, args) = ($ctx, ptr::from_mut(&mut [$(assert_cstr!($arg).as_ptr()),+, ptr::null()]).cast());
+        let (ctx, mut args) = ($ctx, [$(assert_cstr!($arg).as_ptr()),+, std::ptr::null()]);
         unsafe {
-            mpv_command_async(ctx, REPLY_USERDATA, args);
+            mpv_command_async(ctx, REPLY_USERDATA, (&mut args) as *mut _ as _);
         }
     }};
 }
 pub(crate) use command;
 
-macro_rules! free {
-    ($value:expr) => {{
-        use $crate::mpv::capi::mpv_free;
-        let value: *const _ = $value;
-        unsafe {
-            mpv_free(value.cast_mut().cast());
-        }
-    }};
-}
-pub(crate) use free;
-
 macro_rules! get_property {
     ($ctx:expr, $prop:expr, $format:expr, $type:ty) => {{
         use $crate::mpv::{assert_cstr, capi::mpv_get_property};
-        use $crate::ptr;
-        let mut rtrn = <$type>::default();
-        let (ctx, prop, format, data) = (
-            $ctx,
-            assert_cstr!($prop).as_ptr().cast(),
-            $format,
-            ptr::from_mut(&mut rtrn).cast(),
-        );
+        let (ctx, prop, format, mut data) =
+            ($ctx, assert_cstr!($prop), $format, <$type>::default());
         unsafe {
-            mpv_get_property(ctx, prop, format, data);
+            mpv_get_property(
+                ctx,
+                prop.as_ptr().cast(),
+                format,
+                (&mut data) as *mut _ as _,
+            );
         }
-        rtrn
+        data
     }};
 }
 pub(crate) use get_property;
@@ -86,15 +73,17 @@ pub(crate) use get_property_float;
 macro_rules! get_property_string {
     ($ctx:expr, $prop:expr) => {{
         use std::ffi::CStr;
-        use $crate::mpv::{capi::mpv_get_property_string, free};
-        let (ctx, prop) = ($ctx, $prop.as_ptr().cast());
-        let cstr = unsafe { mpv_get_property_string(ctx, prop) };
+        use $crate::mpv::capi::{mpv_free, mpv_get_property_string};
+        let (ctx, prop) = ($ctx, $prop);
+        let cstr = unsafe { mpv_get_property_string(ctx, prop.as_ptr().cast()) };
         if cstr.is_null() {
             None
         } else {
-            scopeguard::guard(unsafe { CStr::from_ptr(cstr) }, |v| free!(v.as_ptr()))
-                .to_str()
-                .ok()
+            scopeguard::guard(unsafe { CStr::from_ptr(cstr) }, |v| unsafe {
+                mpv_free(v.as_ptr().cast_mut().cast())
+            })
+            .to_str()
+            .ok()
         }
     }};
 }
@@ -103,15 +92,15 @@ pub(crate) use get_property_string;
 macro_rules! set_property {
     ($ctx:expr, $prop:expr, $format:expr, $data:expr) => {{
         use $crate::mpv::{assert_cstr, capi::mpv_set_property_async, REPLY_USERDATA};
-        use $crate::ptr;
-        let (ctx, prop, format, data) = (
-            $ctx,
-            assert_cstr!($prop).as_ptr().cast(),
-            $format,
-            ptr::from_mut(&mut $data).cast(),
-        );
+        let (ctx, prop, format, mut data) = ($ctx, assert_cstr!($prop), $format, $data);
         unsafe {
-            mpv_set_property_async(ctx, REPLY_USERDATA, prop, format, data);
+            mpv_set_property_async(
+                ctx,
+                REPLY_USERDATA,
+                prop.as_ptr().cast(),
+                format,
+                (&mut data) as *mut _ as _,
+            );
         }
     }};
 }
@@ -137,7 +126,7 @@ pub(crate) use set_property_float;
 macro_rules! set_property_string {
     ($ctx:expr, $prop:expr, $data:expr) => {{
         use $crate::mpv::{assert_cstr, set_property, MPV_FORMAT_STRING};
-        set_property!($ctx, $prop, MPV_FORMAT_STRING, assert_cstr!($data))
+        set_property!($ctx, $prop, MPV_FORMAT_STRING, assert_cstr!($data).as_ptr())
     }};
 }
 pub(crate) use set_property_string;
@@ -145,9 +134,9 @@ pub(crate) use set_property_string;
 macro_rules! observe_property_format {
     ($ctx:expr, $prop:expr, $format:expr) => {{
         use $crate::mpv::{assert_cstr, capi::mpv_observe_property, REPLY_USERDATA};
-        let (ctx, prop, format) = ($ctx, assert_cstr!($prop).as_ptr().cast(), $format);
+        let (ctx, prop, format) = ($ctx, assert_cstr!($prop), $format);
         unsafe {
-            mpv_observe_property(ctx, REPLY_USERDATA, prop, format);
+            mpv_observe_property(ctx, REPLY_USERDATA, prop.as_ptr().cast(), format);
         }
     }};
 }

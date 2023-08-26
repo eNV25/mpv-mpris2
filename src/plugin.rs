@@ -9,7 +9,6 @@ use mpv::capi::{mpv_event_id::*, *};
 
 pub(crate) mod mpris;
 pub(crate) mod mpv;
-pub(crate) mod ptr;
 
 #[no_mangle]
 pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
