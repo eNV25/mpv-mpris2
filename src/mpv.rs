@@ -1,151 +1,126 @@
-pub(crate) mod capi {
-    #![allow(dead_code)]
-    #![allow(non_upper_case_globals)]
-    #![allow(non_camel_case_types)]
-    #![allow(non_snake_case)]
+#![allow(dead_code)]
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
 
-    include!(concat!(env!("OUT_DIR"), "/mpv.rs"));
-}
+include!(concat!(env!("OUT_DIR"), "/mpv.rs"));
+
+pub use {mpv_end_file_reason::*, mpv_error::*, mpv_event_id::*, mpv_format::*, mpv_log_level::*};
+
+pub const REPLY_USERDATA: u64 = u64::from_ne_bytes(*b"mpvmpris");
 
 #[repr(transparent)]
-pub(crate) struct Handle(pub *mut capi::mpv_handle);
+pub struct Handle(pub *mut mpv_handle);
 unsafe impl Send for Handle {}
 unsafe impl Sync for Handle {}
 
-pub(crate) const REPLY_USERDATA: u64 = u64::from_ne_bytes(*b"mpvmpris");
-pub(crate) use capi::mpv_format::*;
+#[repr(transparent)]
+#[derive(Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Str<'a>(&'a str);
 
-macro_rules! assert_cstr {
-    ($s:expr) => {{
-        let s = $s;
-        debug_assert_eq!(s.as_bytes()[s.len() - 1], '\0' as u8);
-        s
-    }};
-}
-pub(crate) use assert_cstr;
-
-macro_rules! command {
-    ($ctx:expr, $($arg:expr),+ $(,)?) => {{
-        use $crate::mpv::{assert_cstr,REPLY_USERDATA,capi::mpv_command_async};
-        let (ctx, mut args) = ($ctx, [$(assert_cstr!($arg).as_ptr()),+, std::ptr::null()]);
-        unsafe {
-            mpv_command_async(ctx, REPLY_USERDATA, (&mut args) as *mut _ as _);
-        }
-    }};
-}
-pub(crate) use command;
-
-macro_rules! get_property {
-    ($ctx:expr, $prop:expr, $format:expr, $type:ty) => {{
-        use $crate::mpv::{assert_cstr, capi::mpv_get_property};
-        let (ctx, prop, format, mut data) =
-            ($ctx, assert_cstr!($prop), $format, <$type>::default());
-        unsafe {
-            mpv_get_property(
-                ctx,
-                prop.as_ptr().cast(),
-                format,
-                (&mut data) as *mut _ as _,
-            );
-        }
-        data
-    }};
-}
-pub(crate) use get_property;
-
-macro_rules! get_property_bool {
-    ($ctx:expr, $prop:expr) => {{
-        use std::ffi::c_int;
-        use $crate::mpv::{get_property, MPV_FORMAT_FLAG};
-        get_property!($ctx, $prop, MPV_FORMAT_FLAG, c_int) != 0
-    }};
-}
-pub(crate) use get_property_bool;
-
-macro_rules! get_property_float {
-    ($ctx:expr, $prop:expr) => {{
-        use $crate::mpv::{get_property, MPV_FORMAT_DOUBLE};
-        get_property!($ctx, $prop, MPV_FORMAT_DOUBLE, f64)
-    }};
-}
-pub(crate) use get_property_float;
-
-macro_rules! get_property_string {
-    ($ctx:expr, $prop:expr) => {{
-        use std::ffi::CStr;
-        use $crate::mpv::capi::{mpv_free, mpv_get_property_string};
-        let (ctx, prop) = ($ctx, $prop);
-        let cstr = unsafe { mpv_get_property_string(ctx, prop.as_ptr().cast()) };
-        if cstr.is_null() {
-            None
-        } else {
-            scopeguard::guard(unsafe { CStr::from_ptr(cstr) }, |v| unsafe {
-                mpv_free(v.as_ptr().cast_mut().cast())
-            })
+impl<'a> TryFrom<&'a std::ffi::c_char> for Str<'a> {
+    type Error = std::str::Utf8Error;
+    fn try_from(value: &'a std::ffi::c_char) -> Result<Self, Self::Error> {
+        // SAFETY: value cannot be null
+        unsafe { std::ffi::CStr::from_ptr(value) }
             .to_str()
-            .ok()
-        }
-    }};
+            .map(Self)
+    }
 }
-pub(crate) use get_property_string;
 
-macro_rules! set_property {
-    ($ctx:expr, $prop:expr, $format:expr, $data:expr) => {{
-        use $crate::mpv::{assert_cstr, capi::mpv_set_property_async, REPLY_USERDATA};
-        let (ctx, prop, format, mut data) = ($ctx, assert_cstr!($prop), $format, $data);
-        unsafe {
-            mpv_set_property_async(
-                ctx,
-                REPLY_USERDATA,
-                prop.as_ptr().cast(),
-                format,
-                (&mut data) as *mut _ as _,
-            );
-        }
-    }};
+impl<'a> Drop for Str<'a> {
+    fn drop(&mut self) {
+        unsafe { mpv_free(self.0.as_ptr().cast_mut().cast()) }
+    }
 }
-pub(crate) use set_property;
 
-macro_rules! set_property_bool {
-    ($ctx:expr, $prop:expr, $value:expr) => {{
-        use std::ffi::c_int;
-        use $crate::mpv::{set_property, MPV_FORMAT_FLAG};
-        set_property!($ctx, $prop, MPV_FORMAT_FLAG, $value as c_int)
-    }};
+impl<'a> Str<'a> {
+    #[inline]
+    pub fn into_str(self) -> &'a str {
+        self.0
+    }
 }
-pub(crate) use set_property_bool;
 
-macro_rules! set_property_float {
-    ($ctx:expr, $prop:expr, $data:expr) => {{
-        use $crate::mpv::{set_property, MPV_FORMAT_DOUBLE};
-        set_property!($ctx, $prop, MPV_FORMAT_DOUBLE, $data as f64)
-    }};
+impl<'a> std::ops::Deref for Str<'a> {
+    type Target = str;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
 }
-pub(crate) use set_property_float;
 
-macro_rules! set_property_string {
-    ($ctx:expr, $prop:expr, $data:expr) => {{
-        use $crate::mpv::{assert_cstr, set_property, MPV_FORMAT_STRING};
-        set_property!($ctx, $prop, MPV_FORMAT_STRING, assert_cstr!($data).as_ptr())
-    }};
+impl<'a> From<Str<'a>> for &'a str {
+    #[inline]
+    fn from(value: Str<'a>) -> Self {
+        value.0
+    }
 }
-pub(crate) use set_property_string;
 
-macro_rules! observe_property_format {
-    ($ctx:expr, $prop:expr, $format:expr) => {{
-        use $crate::mpv::{assert_cstr, capi::mpv_observe_property, REPLY_USERDATA};
-        let (ctx, prop, format) = ($ctx, assert_cstr!($prop), $format);
-        unsafe {
-            mpv_observe_property(ctx, REPLY_USERDATA, prop.as_ptr().cast(), format);
-        }
-    }};
+impl<'a> AsRef<std::ffi::OsStr> for Str<'a> {
+    #[inline]
+    fn as_ref(&self) -> &std::ffi::OsStr {
+        self.0.as_ref()
+    }
 }
-pub(crate) use observe_property_format;
 
-macro_rules! observe_properties {
-    ($ctx:expr, $($prop:expr),+ $(,)?) => {{
-        use $crate::mpv::{observe_property_format, MPV_FORMAT_NONE};
-        $(observe_property_format!($ctx, $prop, MPV_FORMAT_NONE));+
-    }};
+impl<'a> AsRef<std::path::Path> for Str<'a> {
+    #[inline]
+    fn as_ref(&self) -> &std::path::Path {
+        self.0.as_ref()
+    }
 }
-pub(crate) use observe_properties;
+
+impl<'a> AsRef<[u8]> for Str<'a> {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl<'a> AsRef<str> for Str<'a> {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
+
+impl<'a> std::borrow::Borrow<str> for Str<'a> {
+    fn borrow(&self) -> &str {
+        self.0
+    }
+}
+
+impl<'a> PartialEq<str> for Str<'a> {
+    #[inline]
+    fn eq(&self, other: &str) -> bool {
+        self.0.eq(other)
+    }
+}
+
+impl<'a> PartialOrd<str> for Str<'a> {
+    #[inline]
+    fn partial_cmp(&self, other: &str) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other)
+    }
+}
+
+impl<'a> PartialEq<&'a str> for Str<'a> {
+    #[inline]
+    fn eq(&self, other: &&'a str) -> bool {
+        self.0.eq(*other)
+    }
+}
+
+impl<'a> PartialOrd<&'a str> for Str<'a> {
+    #[inline]
+    fn partial_cmp(&self, other: &&'a str) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(*other)
+    }
+}
+
+impl<'a> std::fmt::Debug for Str<'a> {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}

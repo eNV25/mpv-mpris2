@@ -5,24 +5,22 @@ use smol::{future::FutureExt, process::Command};
 use url::Url;
 use zbus::dbus_interface;
 
-use crate::mpv;
-
 #[repr(transparent)]
 pub struct PlayerProxy {
-    ctx: mpv::Handle,
+    ctx: crate::Handle,
 }
 
-impl From<*mut mpv::capi::mpv_handle> for PlayerProxy {
-    fn from(value: *mut mpv::capi::mpv_handle) -> Self {
+impl From<*mut crate::mpv_handle> for PlayerProxy {
+    fn from(value: *mut crate::mpv_handle) -> Self {
         Self {
-            ctx: mpv::Handle(value),
+            ctx: crate::Handle(value),
         }
     }
 }
 
 impl PlayerProxy {
     #[inline(always)]
-    fn ctx(&self) -> *mut crate::mpv::capi::mpv_handle {
+    fn ctx(&self) -> *mut crate::mpv_handle {
         self.ctx.0
     }
 }
@@ -37,7 +35,7 @@ impl PlayerProxy {
 
     /// Next method
     fn next(&self) {
-        mpv::command!(self.ctx(), "playlist-next\0");
+        command!(self.ctx(), "playlist-next\0");
     }
 
     /// CanGoPrevious property
@@ -48,7 +46,7 @@ impl PlayerProxy {
 
     /// Previous method
     fn previous(&self) {
-        mpv::command!(self.ctx(), "playlist-prev\0");
+        command!(self.ctx(), "playlist-prev\0");
     }
 
     /// CanPause property
@@ -59,12 +57,12 @@ impl PlayerProxy {
 
     /// Pause method
     fn pause(&self) {
-        mpv::set_property_bool!(self.ctx(), "pause\0", true);
+        set_property_bool!(self.ctx(), "pause\0", true);
     }
 
     /// PlayPause method
     fn play_pause(&self) {
-        mpv::command!(self.ctx(), "cycle\0", "pause\0");
+        command!(self.ctx(), "cycle\0", "pause\0");
     }
 
     /// CanPlay property
@@ -75,18 +73,18 @@ impl PlayerProxy {
 
     /// Play method
     fn play(&self) {
-        mpv::set_property_bool!(self.ctx(), "pause\0", false);
+        set_property_bool!(self.ctx(), "pause\0", false);
     }
 
     /// CanSeek property
     #[dbus_interface(property)]
     fn can_seek(&self) -> bool {
-        mpv::get_property_bool!(self.ctx(), "seekable\0")
+        get_property_bool!(self.ctx(), "seekable\0")
     }
 
     /// Seek method
     fn seek(&self, offset: i64) {
-        mpv::command!(self.ctx(), "seek\0", format!("{}\0", (offset as f64) / 1E6));
+        command!(self.ctx(), "seek\0", format!("{}\0", (offset as f64) / 1E6));
     }
 
     /// Seeked signal
@@ -95,7 +93,7 @@ impl PlayerProxy {
 
     // OpenUri method
     fn open_uri(&self, uri: &str) {
-        mpv::command!(self.ctx(), "loadfile\0", format!("{}\0", uri));
+        command!(self.ctx(), "loadfile\0", format!("{}\0", uri));
     }
 
     /// CanControl property
@@ -106,17 +104,17 @@ impl PlayerProxy {
 
     /// Stop method
     fn stop(&self) {
-        mpv::command!(self.ctx(), "stop\0");
+        command!(self.ctx(), "stop\0");
     }
 
     /// PlaybackStatus property
     #[dbus_interface(property)]
     fn playback_status(&self) -> &str {
-        if mpv::get_property_bool!(self.ctx(), "idle-active\0")
-            || mpv::get_property_bool!(self.ctx(), "eof-reached\0")
+        if get_property_bool!(self.ctx(), "idle-active\0")
+            || get_property_bool!(self.ctx(), "eof-reached\0")
         {
             "Stopped"
-        } else if mpv::get_property_bool!(self.ctx(), "pause\0") {
+        } else if get_property_bool!(self.ctx(), "pause\0") {
             "Paused"
         } else {
             "Playing"
@@ -126,10 +124,9 @@ impl PlayerProxy {
     /// LoopStatus property
     #[dbus_interface(property)]
     fn loop_status(&self) -> &str {
-        if matches!(mpv::get_property_string!(self.ctx(), "loop-file\0"), Some(v) if v != "no") {
+        if matches!(get_property!(self.ctx(), "loop-file\0"), Some(v) if v != "no") {
             "Track"
-        } else if matches!(mpv::get_property_string!(self.ctx(), "loop-playlist\0"), Some(v) if v != "no")
-        {
+        } else if matches!(get_property!(self.ctx(), "loop-playlist\0"), Some(v) if v != "no") {
             "Playlist"
         } else {
             "None"
@@ -138,7 +135,7 @@ impl PlayerProxy {
 
     #[dbus_interface(property)]
     fn set_loop_status(&self, value: &str) {
-        mpv::set_property_string!(
+        set_property!(
             self.ctx(),
             "loop-file\0",
             match value {
@@ -146,7 +143,7 @@ impl PlayerProxy {
                 _ => "no\0",
             }
         );
-        mpv::set_property_string!(
+        set_property!(
             self.ctx(),
             "loop-playlist\0",
             match value {
@@ -159,44 +156,45 @@ impl PlayerProxy {
     /// Rate property
     #[dbus_interface(property)]
     fn rate(&self) -> f64 {
-        mpv::get_property_float!(self.ctx(), "speed\0")
+        get_property_float!(self.ctx(), "speed\0")
     }
 
     #[dbus_interface(property)]
     fn set_rate(&self, value: f64) {
-        mpv::set_property_float!(self.ctx(), "speed\0", value);
+        set_property_float!(self.ctx(), "speed\0", value);
     }
 
     /// MinimumRate property
     #[dbus_interface(property)]
     fn minimum_rate(&self) -> f64 {
-        mpv::get_property_float!(self.ctx(), "option-info/speed/min\0")
+        get_property_float!(self.ctx(), "option-info/speed/min\0")
     }
 
     /// MaximumRate property
     #[dbus_interface(property)]
     fn maximum_rate(&self) -> f64 {
-        mpv::get_property_float!(self.ctx(), "option-info/speed/max\0")
+        get_property_float!(self.ctx(), "option-info/speed/max\0")
     }
 
     /// Shuffle property
     #[dbus_interface(property)]
     fn shuffle(&self) -> bool {
-        mpv::get_property_bool!(self.ctx(), "shuffle\0")
+        get_property_bool!(self.ctx(), "shuffle\0")
     }
 
     #[dbus_interface(property)]
     fn set_shuffle(&self, value: bool) {
-        mpv::set_property_bool!(self.ctx(), "shuffle\0", value);
+        set_property_bool!(self.ctx(), "shuffle\0", value);
     }
 
     /// Metadata property
     #[dbus_interface(property)]
     async fn metadata(&self) -> collections::HashMap<&str, zbus::zvariant::Value> {
         let (path, stream) = (
-            mpv::get_property_string!(self.ctx(), "path\0").unwrap_or_default(),
-            mpv::get_property_string!(self.ctx(), "stream-open-filename\0").unwrap_or_default(),
+            get_property!(self.ctx(), "path\0").unwrap_or_default(),
+            get_property!(self.ctx(), "stream-open-filename\0").unwrap_or_default(),
         );
+        let (path, stream) = (path.into_str(), stream.into_str());
 
         let thumb = smol::spawn(async {
             let (path, stream) = (path.to_owned(), stream.to_owned());
@@ -242,38 +240,39 @@ impl PlayerProxy {
 
         let mut m = collections::HashMap::new();
 
-        if let Some(s) = mpv::get_property_string!(self.ctx(), "media-title\0") {
+        if let Some(s) = get_property!(self.ctx(), "media-title\0") {
             m.insert("xesam:title", s.to_owned().into());
         }
 
-        let data = mpv::get_property_string!(self.ctx(), "metadata\0").unwrap_or_default();
-        let data: collections::HashMap<&str, String> =
-            serde_json::from_str(data).unwrap_or_default();
-        for (key, value) in data {
-            let integer = || -> i64 {
-                value
-                    .find('/')
-                    .map_or_else(|| &value[..], |x| &value[..x])
-                    .parse()
-                    .unwrap_or_default()
-            };
-            match key.to_ascii_lowercase().as_str() {
-                "album" => m.insert("xesam:album", value.into()),
-                "title" => m.insert("xesam:title", value.into()),
-                "album_artist" => m.insert("xesam:albumArtist", vec![value].into()),
-                "artist" => m.insert("xesam:artist", vec![value].into()),
-                "comment" => m.insert("xesam:comment", vec![value].into()),
-                "composer" => m.insert("xesam:composer", vec![value].into()),
-                "genre" => m.insert("xesam:genre", vec![value].into()),
-                "lyricist" => m.insert("xesam:lyricist", vec![value].into()),
-                "tbp" | "tbpm" | "bpm" => m.insert("xesam:audioBPM", integer().into()),
-                "disc" => m.insert("xesam:discNumber", integer().into()),
-                "track" => m.insert("xesam:trackNumber", integer().into()),
-                lyrics if lyrics.strip_prefix("lyrics").is_some() => {
-                    m.insert("xesam:asText", value.into())
-                }
-                _ => None,
-            };
+        if let Some(data) = get_property!(self.ctx(), "metadata\0") {
+            let data: collections::HashMap<&str, String> =
+                serde_json::from_str(data.into()).unwrap_or_default();
+            for (key, value) in data {
+                let integer = || -> i64 {
+                    value
+                        .find('/')
+                        .map_or_else(|| &value[..], |x| &value[..x])
+                        .parse()
+                        .unwrap_or_default()
+                };
+                match key.to_ascii_lowercase().as_str() {
+                    "album" => m.insert("xesam:album", value.into()),
+                    "title" => m.insert("xesam:title", value.into()),
+                    "album_artist" => m.insert("xesam:albumArtist", vec![value].into()),
+                    "artist" => m.insert("xesam:artist", vec![value].into()),
+                    "comment" => m.insert("xesam:comment", vec![value].into()),
+                    "composer" => m.insert("xesam:composer", vec![value].into()),
+                    "genre" => m.insert("xesam:genre", vec![value].into()),
+                    "lyricist" => m.insert("xesam:lyricist", vec![value].into()),
+                    "tbp" | "tbpm" | "bpm" => m.insert("xesam:audioBPM", integer().into()),
+                    "disc" => m.insert("xesam:discNumber", integer().into()),
+                    "track" => m.insert("xesam:trackNumber", integer().into()),
+                    lyrics if lyrics.strip_prefix("lyrics").is_some() => {
+                        m.insert("xesam:asText", value.into())
+                    }
+                    _ => None,
+                };
+            }
         }
 
         if let Ok(path) = zbus::zvariant::ObjectPath::try_from("/io/mpv") {
@@ -282,12 +281,12 @@ impl PlayerProxy {
 
         m.insert(
             "mpris:length",
-            ((mpv::get_property_float!(self.ctx(), "duration\0") * 1E6) as i64).into(),
+            ((get_property_float!(self.ctx(), "duration\0") * 1E6) as i64).into(),
         );
 
         if let Some(url) = Url::parse(path).ok().or_else(|| {
-            mpv::get_property_string!(self.ctx(), "working-directory\0")
-                .and_then(|dir| Url::from_file_path(path::Path::new(dir).join(path)).ok())
+            get_property!(self.ctx(), "working-directory\0")
+                .and_then(|dir| Url::from_file_path(path::Path::new(dir.into()).join(path)).ok())
         }) {
             m.insert("mpris:url", url.as_str().to_owned().into());
         }
@@ -302,22 +301,22 @@ impl PlayerProxy {
     /// Volume property
     #[dbus_interface(property)]
     fn volume(&self) -> f64 {
-        mpv::get_property_float!(self.ctx(), "volume\0") / 100.0
+        get_property_float!(self.ctx(), "volume\0") / 100.0
     }
 
     #[dbus_interface(property)]
     fn set_volume(&self, value: f64) {
-        mpv::set_property_float!(self.ctx(), "volume\0", value * 100.0)
+        set_property_float!(self.ctx(), "volume\0", value * 100.0)
     }
 
     /// Position property
     #[dbus_interface(property)]
     fn position(&self) -> i64 {
-        (mpv::get_property_float!(self.ctx(), "playback-time\0") * 1E6) as i64
+        (get_property_float!(self.ctx(), "playback-time\0") * 1E6) as i64
     }
 
     // SetPosition method
     fn set_position(&self, _track_id: zbus::zvariant::ObjectPath<'_>, position: i64) {
-        mpv::set_property_float!(self.ctx(), "playback-time\0", (position as f64) / 1E6);
+        set_property_float!(self.ctx(), "playback-time\0", (position as f64) / 1E6);
     }
 }

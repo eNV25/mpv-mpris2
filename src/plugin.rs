@@ -1,14 +1,17 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)] // mpv_wait_event
 
+#[macro_use]
+mod mp;
+
+pub(crate) mod mpris;
+pub(crate) mod mpv;
+
+pub(crate) use crate::mpv::*;
+
 use std::{
     ffi::{c_int, CStr},
     process,
 };
-
-use mpv::capi::{mpv_event_id::*, *};
-
-pub(crate) mod mpris;
-pub(crate) mod mpv;
 
 #[no_mangle]
 pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
@@ -44,7 +47,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     // must be kept in sync with the implementations in the
     // dbus interface implementations.
     // It's a bit of a pain in the ass but there's no other way.
-    mpv::observe_properties!(
+    observe_properties!(
         ctx,
         "seekable\0",
         "idle-active\0",
@@ -62,7 +65,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     let mut mp_seeking = false;
     loop {
         let ev = unsafe { mpv_wait_event(ctx, -1.0).as_ref().unwrap_unchecked() };
-        if ev.reply_userdata != u64::default() && ev.reply_userdata != mpv::REPLY_USERDATA {
+        if ev.reply_userdata != u64::default() && ev.reply_userdata != REPLY_USERDATA {
             continue;
         }
         match ev.event_id {
@@ -74,7 +77,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
                 mp_seeking = false;
                 _ = mpris::PlayerProxy::seeked(
                     player.signal_context(),
-                    (mpv::get_property_float!(ctx, "playback-time\0") * 1E6) as i64,
+                    (get_property_float!(ctx, "playback-time\0") * 1E6) as i64,
                 )
                 .await;
             }),
