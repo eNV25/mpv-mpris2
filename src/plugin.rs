@@ -8,38 +8,36 @@ pub(crate) mod mpv;
 
 pub(crate) use crate::mpv::*;
 
-use std::{
-    ffi::{c_int, CStr},
-    process,
-};
+use std::{collections, ffi, iter, process};
 
 #[no_mangle]
-pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
+pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
     if ctx.is_null() {
         return 1;
     }
+
     let pid = process::id();
     let connection = smol::block_on(async {
         let connection = zbus::ConnectionBuilder::session()?
             .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
-            .serve_at("/org/mpris/MediaPlayer2", mpris::RootProxy::from(ctx))?
-            .serve_at("/org/mpris/MediaPlayer2", mpris::PlayerProxy::from(ctx))?
+            .serve_at("/org/mpris/MediaPlayer2", mpris::RootImpl::from(ctx))?
+            .serve_at("/org/mpris/MediaPlayer2", mpris::PlayerImpl::from(ctx))?
             .build()
             .await?;
         zbus::Result::Ok(connection)
     })
     .expect("dbus session connection and server setup");
 
-    let root = smol::block_on(
+    let root: zbus::InterfaceRef<mpris::RootImpl> = smol::block_on(
         connection
             .object_server()
-            .interface::<_, mpris::RootProxy>("/org/mpris/MediaPlayer2"),
+            .interface("/org/mpris/MediaPlayer2"),
     )
     .expect("MediaPlayer2 interface reference");
-    let player = smol::block_on(
+    let player: zbus::InterfaceRef<mpris::PlayerImpl> = smol::block_on(
         connection
             .object_server()
-            .interface::<_, mpris::PlayerProxy>("/org/mpris/MediaPlayer2"),
+            .interface("/org/mpris/MediaPlayer2"),
     )
     .expect("MediaPlayer2.Player interface reference");
 
@@ -51,6 +49,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
         ctx,
         "seekable\0",
         "idle-active\0",
+        "keep-open\0",
         "eof-reached\0",
         "pause\0",
         "loop-file\0",
@@ -62,54 +61,110 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
         "fullscreen\0",
     );
 
-    let mut mp_seeking = false;
+    let mut keep_open;
+    let mut seeking = false;
     loop {
-        let ev = unsafe { mpv_wait_event(ctx, -1.0).as_ref().unwrap_unchecked() };
-        if ev.reply_userdata != u64::default() && ev.reply_userdata != REPLY_USERDATA {
-            continue;
-        }
-        match ev.event_id {
-            MPV_EVENT_SHUTDOWN => return 0,
-            MPV_EVENT_SEEK => {
-                mp_seeking = true;
-            }
-            MPV_EVENT_PLAYBACK_RESTART if mp_seeking => smol::block_on(async {
-                mp_seeking = false;
-                _ = mpris::PlayerProxy::seeked(
-                    player.signal_context(),
-                    (get_property_float!(ctx, "playback-time\0") * 1E6) as i64,
-                )
-                .await;
-            }),
-            MPV_EVENT_PROPERTY_CHANGE => smol::block_on(async {
-                let data = unsafe {
-                    (ev.data as *const mpv_event_property)
-                        .as_ref()
-                        .unwrap_unchecked()
-                };
-                let prop = unsafe { CStr::from_ptr(data.name) }
-                    .to_str()
-                    .unwrap_or_default();
-                macro_rules! changed {
-                    ($iface:expr, $method:ident) => {
-                        $iface.get().await.$method($iface.signal_context()).await
-                    };
+        let mut shutdown = false;
+        let mut seeked = false;
+
+        // We don't need to mpv_free() these strings or anything returned by mpv_wait_event(),
+        // the API does it automatically.
+        let changed: collections::HashMap<&str, &str> = iter::once(-1.0)
+            .chain(iter::repeat(0.0))
+            .map(|timeout|
+                // SAFETY: event cannot be NULL
+                unsafe { mpv_wait_event(ctx, timeout).as_ref().unwrap_unchecked() })
+            .take_while(|ev| match ev.event_id {
+                MPV_EVENT_NONE => false,
+                MPV_EVENT_SHUTDOWN => {
+                    shutdown = true;
+                    false
                 }
-                _ = match prop {
-                    "seekable" => changed!(player, can_seek_changed),
-                    "idle-active" | "eof-reached" | "pause" => {
-                        changed!(player, playback_status_changed)
-                    }
-                    "loop-file" | "loop-playlist" => changed!(player, loop_status_changed),
-                    "speed" => changed!(player, rate_changed),
-                    "shuffle" => changed!(player, shuffle_changed),
-                    "metadata" => changed!(player, metadata_changed),
-                    "volume" => changed!(player, volume_changed),
-                    "fullscreen" => changed!(root, fullscreen_changed),
-                    _ => Ok(()),
-                };
-            }),
-            _ => {}
+                MPV_EVENT_SEEK => {
+                    seeking = true;
+                    true
+                }
+                MPV_EVENT_PLAYBACK_RESTART if seeking => {
+                    seeking = false;
+                    seeked = true;
+                    true
+                }
+                _ => true,
+            })
+            .filter_map(|ev| {
+                if ev.event_id != MPV_EVENT_PROPERTY_CHANGE || ev.reply_userdata != REPLY_USERDATA {
+                    return None;
+                }
+                let prop: mpv_event_property = unsafe { *ev.data.cast() };
+                let name = unsafe { ffi::CStr::from_ptr(prop.name) }.to_str();
+                if prop.format != MPV_FORMAT_STRING {
+                    return None;
+                }
+                let value = unsafe { ffi::CStr::from_ptr(*prop.data.cast()) }.to_str();
+                match (name, value) {
+                    (Ok(name), Ok(value)) => Some((name, value)),
+                    _ => None,
+                }
+            })
+            .collect();
+
+        if shutdown {
+            return 0;
         }
+
+        if seeked {
+            let position = get_property_float!(ctx, "playback-time\0") * 1E6;
+            _ = smol::block_on(mpris::PlayerImpl::seeked(
+                player.signal_context(),
+                position as i64,
+            ));
+        }
+
+        if let Some(&"no") = changed.get("keep-open") {
+            keep_open = false
+        } else {
+            keep_open = true
+        }
+
+        macro_rules! signal_changed {
+            ($iface:expr, $method:ident) => {
+                smol::block_on(async {
+                    _ = $iface.get().await.$method($iface.signal_context()).await;
+                })
+            };
+        }
+
+        macro_rules! forward_properties {
+            ($changed:expr, $(($iface:expr, $method:ident, $prop0:expr $(, $prop1:expr)*),)+) => {
+                match () {
+                    $(_ if $changed.contains_key($prop0)$( || $changed.contains_key($prop1))* => {
+                        signal_changed!($iface, $method);
+                    })+
+                    _ => {},
+                }
+            };
+        }
+
+        if keep_open && changed.contains_key("eof-reached") {
+            signal_changed!(player, playback_status_changed);
+        }
+
+        forward_properties!(
+            changed,
+            (player, can_seek_changed, "seekable"),
+            (player, playback_status_changed, "idle-active", "pause"),
+            (player, loop_status_changed, "loop-file", "loop-playlist"),
+            (player, rate_changed, "speed"),
+            (player, shuffle_changed, "shuffle"),
+            (
+                player,
+                metadata_changed,
+                "metadata",
+                "media-title",
+                "duration"
+            ),
+            (player, volume_changed, "volume"),
+            (root, fullscreen_changed, "fullscreen"),
+        );
     }
 }

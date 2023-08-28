@@ -7,11 +7,11 @@ use std::{
 use zbus::dbus_interface;
 
 #[repr(transparent)]
-pub struct RootProxy {
+pub struct RootImpl {
     ctx: crate::Handle,
 }
 
-impl From<*mut crate::mpv_handle> for RootProxy {
+impl From<*mut crate::mpv_handle> for RootImpl {
     fn from(value: *mut crate::mpv_handle) -> Self {
         Self {
             ctx: crate::Handle(value),
@@ -19,7 +19,7 @@ impl From<*mut crate::mpv_handle> for RootProxy {
     }
 }
 
-impl RootProxy {
+impl RootImpl {
     #[inline(always)]
     fn ctx(&self) -> *mut crate::mpv_handle {
         self.ctx.0
@@ -27,7 +27,7 @@ impl RootProxy {
 }
 
 #[dbus_interface(name = "org.mpris.MediaPlayer2")]
-impl RootProxy {
+impl RootImpl {
     /// DesktopEntry property
     #[dbus_interface(property)]
     fn desktop_entry(&self) -> &str {

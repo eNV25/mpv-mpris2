@@ -6,11 +6,11 @@ use url::Url;
 use zbus::dbus_interface;
 
 #[repr(transparent)]
-pub struct PlayerProxy {
+pub struct PlayerImpl {
     ctx: crate::Handle,
 }
 
-impl From<*mut crate::mpv_handle> for PlayerProxy {
+impl From<*mut crate::mpv_handle> for PlayerImpl {
     fn from(value: *mut crate::mpv_handle) -> Self {
         Self {
             ctx: crate::Handle(value),
@@ -18,7 +18,7 @@ impl From<*mut crate::mpv_handle> for PlayerProxy {
     }
 }
 
-impl PlayerProxy {
+impl PlayerImpl {
     #[inline(always)]
     fn ctx(&self) -> *mut crate::mpv_handle {
         self.ctx.0
@@ -26,7 +26,7 @@ impl PlayerProxy {
 }
 
 #[dbus_interface(name = "org.mpris.MediaPlayer2.Player")]
-impl PlayerProxy {
+impl PlayerImpl {
     /// CanGoNext property
     #[dbus_interface(property)]
     fn can_go_next(&self) -> bool {
@@ -201,7 +201,7 @@ impl PlayerProxy {
             if path == stream {
                 Command::new("ffmpegthumbnailer")
                     .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
-                    .arg(&stream)
+                    .arg(&path)
                     .output()
                     .or(async {
                         smol::Timer::after(time::Duration::from_secs(1)).await;

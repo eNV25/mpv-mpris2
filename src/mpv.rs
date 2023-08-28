@@ -16,7 +16,7 @@ unsafe impl Sync for Handle {}
 
 #[repr(transparent)]
 #[derive(Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Str<'a>(&'a str);
+pub struct Str<'a>(pub &'a str);
 
 impl<'a> TryFrom<&'a std::ffi::c_char> for Str<'a> {
     type Error = std::str::Utf8Error;
@@ -115,6 +115,20 @@ impl<'a> PartialOrd<&'a str> for Str<'a> {
     #[inline]
     fn partial_cmp(&self, other: &&'a str) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(*other)
+    }
+}
+
+impl<'a> PartialEq<String> for Str<'a> {
+    #[inline]
+    fn eq(&self, other: &String) -> bool {
+        self.0.eq(other)
+    }
+}
+
+impl<'a> PartialOrd<String> for Str<'a> {
+    #[inline]
+    fn partial_cmp(&self, other: &String) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other)
     }
 }
 

@@ -105,6 +105,6 @@ macro_rules! observe_property_format {
 
 macro_rules! observe_properties {
     ($ctx:expr, $($prop:expr),+ $(,)?) => {
-        $(observe_property_format!($ctx, $prop, $crate::MPV_FORMAT_NONE));+
+        $(observe_property_format!($ctx, $prop, $crate::MPV_FORMAT_STRING));+
     };
 }
