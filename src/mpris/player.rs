@@ -19,7 +19,7 @@ impl From<*mut crate::mpv_handle> for PlayerImpl {
 }
 
 impl PlayerImpl {
-    #[inline(always)]
+    #[inline]
     fn ctx(&self) -> *mut crate::mpv_handle {
         self.ctx.0
     }
@@ -306,7 +306,7 @@ impl PlayerImpl {
 
     #[dbus_interface(property)]
     fn set_volume(&self, value: f64) {
-        set_property_float!(self.ctx(), "volume\0", value * 100.0)
+        set_property_float!(self.ctx(), "volume\0", value * 100.0);
     }
 
     /// Position property
@@ -316,7 +316,8 @@ impl PlayerImpl {
     }
 
     // SetPosition method
-    fn set_position(&self, _track_id: zbus::zvariant::ObjectPath<'_>, position: i64) {
+    fn set_position(&self, track_id: zbus::zvariant::ObjectPath<'_>, position: i64) {
+        _ = track_id;
         set_property_float!(self.ctx(), "playback-time\0", (position as f64) / 1E6);
     }
 }

@@ -20,7 +20,7 @@ impl From<*mut crate::mpv_handle> for RootImpl {
 }
 
 impl RootImpl {
-    #[inline(always)]
+    #[inline]
     fn ctx(&self) -> *mut crate::mpv_handle {
         self.ctx.0
     }

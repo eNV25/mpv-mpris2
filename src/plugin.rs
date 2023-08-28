@@ -112,18 +112,18 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
             return 0;
         }
 
+        if let Some(&"no") = changed.get("keep-open") {
+            keep_open = false;
+        } else {
+            keep_open = true;
+        }
+
         if seeked {
             let position = get_property_float!(ctx, "playback-time\0") * 1E6;
             _ = smol::block_on(mpris::PlayerImpl::seeked(
                 player.signal_context(),
                 position as i64,
             ));
-        }
-
-        if let Some(&"no") = changed.get("keep-open") {
-            keep_open = false
-        } else {
-            keep_open = true
         }
 
         macro_rules! signal_changed {

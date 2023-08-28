@@ -8,9 +8,9 @@ macro_rules! assert_cstr {
 
 macro_rules! command {
     ($ctx:expr, $($arg:expr),+ $(,)?) => {{
-        let (ctx, mut args) = ($ctx, [$(assert_cstr!($arg).as_ptr()),+, std::ptr::null()]);
+        let (ctx, args) = ($ctx, [$(assert_cstr!($arg).as_ptr()),+, std::ptr::null()]);
         unsafe {
-            $crate::mpv_command_async(ctx, $crate::REPLY_USERDATA, (&mut args) as *mut _ as _);
+            $crate::mpv_command_async(ctx, $crate::REPLY_USERDATA, (&args).as_ptr().cast_mut().cast());
         }
     }};
 }
@@ -18,16 +18,16 @@ macro_rules! command {
 macro_rules! get_property_format {
     ($ctx:expr, $prop:expr, $format:expr, $type:ty) => {{
         let (ctx, prop, format, mut data) =
-            ($ctx, assert_cstr!($prop), $format, <$type>::default());
+            ($ctx, assert_cstr!($prop), $format, [<$type>::default()]);
         unsafe {
             $crate::mpv_get_property(
                 ctx,
                 prop.as_ptr().cast(),
                 format,
-                (&mut data) as *mut _ as _,
+                (&mut data).as_mut_ptr().cast(),
             );
         }
-        data
+        data[0]
     }};
 }
 
@@ -53,14 +53,14 @@ macro_rules! get_property {
 
 macro_rules! set_property_format {
     ($ctx:expr, $prop:expr, $format:expr, $data:expr) => {{
-        let (ctx, prop, format, mut data) = ($ctx, assert_cstr!($prop), $format, $data);
+        let (ctx, prop, format, data) = ($ctx, assert_cstr!($prop), $format, [$data]);
         unsafe {
             $crate::mpv_set_property_async(
                 ctx,
                 $crate::REPLY_USERDATA,
                 prop.as_ptr().cast(),
                 format,
-                (&mut data) as *mut _ as _,
+                (&data).as_ptr().cast_mut().cast(),
             );
         }
     }};
