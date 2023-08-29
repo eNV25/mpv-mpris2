@@ -17,7 +17,7 @@ unsafe impl Send for Handle {}
 unsafe impl Sync for Handle {}
 
 #[repr(transparent)]
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub struct Error(pub mpv_error);
 
 impl From<std::ffi::c_int> for mpv_error {
@@ -47,19 +47,22 @@ impl From<Error> for zbus::fdo::Error {
     }
 }
 
-impl std::fmt::Display for mpv_error {
+impl std::fmt::Debug for Error {
+    #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str = unsafe { std::ffi::CStr::from_ptr(mpv_error_string(*self as _)) }
-            .to_str()
-            .unwrap_or_default();
-        f.write_str(str)
+        f.write_str("Error(")?;
+        std::fmt::Display::fmt(self, f)?;
+        f.write_str(")")
     }
 }
 
 impl std::fmt::Display for Error {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        let str = unsafe { std::ffi::CStr::from_ptr(mpv_error_string(self.0 as _)) }
+            .to_str()
+            .unwrap_or_default();
+        f.write_str(str)
     }
 }
 
