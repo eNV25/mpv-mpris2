@@ -35,7 +35,7 @@ impl PlayerImpl {
 
     /// Next method
     fn next(&self) {
-        command!(self.ctx(), "playlist-next\0");
+        _ = command!(self.ctx(), "playlist-next\0");
     }
 
     /// CanGoPrevious property
@@ -46,7 +46,7 @@ impl PlayerImpl {
 
     /// Previous method
     fn previous(&self) {
-        command!(self.ctx(), "playlist-prev\0");
+        _ = command!(self.ctx(), "playlist-prev\0");
     }
 
     /// CanPause property
@@ -57,12 +57,12 @@ impl PlayerImpl {
 
     /// Pause method
     fn pause(&self) {
-        set_property_bool!(self.ctx(), "pause\0", true);
+        _ = set_property_bool!(self.ctx(), "pause\0", true);
     }
 
     /// PlayPause method
     fn play_pause(&self) {
-        command!(self.ctx(), "cycle\0", "pause\0");
+        _ = command!(self.ctx(), "cycle\0", "pause\0");
     }
 
     /// CanPlay property
@@ -73,18 +73,18 @@ impl PlayerImpl {
 
     /// Play method
     fn play(&self) {
-        set_property_bool!(self.ctx(), "pause\0", false);
+        _ = set_property_bool!(self.ctx(), "pause\0", false);
     }
 
     /// CanSeek property
     #[dbus_interface(property)]
-    fn can_seek(&self) -> bool {
-        get_property_bool!(self.ctx(), "seekable\0")
+    fn can_seek(&self) -> Result<bool> {
+        get_property_bool!(self.ctx(), "seekable\0").map_err(From::from)
     }
 
     /// Seek method
     fn seek(&self, offset: i64) {
-        command!(self.ctx(), "seek\0", format!("{}\0", (offset as f64) / 1E6));
+        _ = command!(self.ctx(), "seek\0", format!("{}\0", (offset as f64) / 1E6));
     }
 
     /// Seeked signal
@@ -93,7 +93,7 @@ impl PlayerImpl {
 
     // OpenUri method
     fn open_uri(&self, uri: &str) {
-        command!(self.ctx(), "loadfile\0", format!("{}\0", uri));
+        _ = command!(self.ctx(), "loadfile\0", format!("{}\0", uri));
     }
 
     /// CanControl property
@@ -104,38 +104,39 @@ impl PlayerImpl {
 
     /// Stop method
     fn stop(&self) {
-        command!(self.ctx(), "stop\0");
+        _ = command!(self.ctx(), "stop\0");
     }
 
     /// PlaybackStatus property
     #[dbus_interface(property)]
-    fn playback_status(&self) -> &str {
-        if get_property_bool!(self.ctx(), "idle-active\0")
-            || get_property_bool!(self.ctx(), "eof-reached\0")
+    fn playback_status(&self) -> Result<&str> {
+        if get_property_bool!(self.ctx(), "idle-active\0")?
+            || get_property_bool!(self.ctx(), "eof-reached\0")?
         {
-            "Stopped"
-        } else if get_property_bool!(self.ctx(), "pause\0") {
-            "Paused"
+            Ok("Stopped")
+        } else if get_property_bool!(self.ctx(), "pause\0")? {
+            Ok("Paused")
         } else {
-            "Playing"
+            Ok("Playing")
         }
     }
 
     /// LoopStatus property
     #[dbus_interface(property)]
-    fn loop_status(&self) -> &str {
-        if matches!(get_property!(self.ctx(), "loop-file\0"), Some(v) if v != "no") {
-            "Track"
-        } else if matches!(get_property!(self.ctx(), "loop-playlist\0"), Some(v) if v != "no") {
-            "Playlist"
+    fn loop_status(&self) -> Result<&str> {
+        let err = || Error::Failed("cannot get property".into());
+        if get_property!(self.ctx(), "loop-file\0").ok_or_else(err)? != "no" {
+            Ok("Track")
+        } else if get_property!(self.ctx(), "loop-playlist\0").ok_or_else(err)? != "no" {
+            Ok("Playlist")
         } else {
-            "None"
+            Ok("None")
         }
     }
 
     #[dbus_interface(property)]
     fn set_loop_status(&self, value: &str) {
-        set_property!(
+        _ = set_property!(
             self.ctx(),
             "loop-file\0",
             match value {
@@ -143,7 +144,7 @@ impl PlayerImpl {
                 _ => "no\0",
             }
         );
-        set_property!(
+        _ = set_property!(
             self.ctx(),
             "loop-playlist\0",
             match value {
@@ -155,41 +156,41 @@ impl PlayerImpl {
 
     /// Rate property
     #[dbus_interface(property)]
-    fn rate(&self) -> f64 {
-        get_property_float!(self.ctx(), "speed\0")
+    fn rate(&self) -> Result<f64> {
+        get_property_float!(self.ctx(), "speed\0").map_err(From::from)
     }
 
     #[dbus_interface(property)]
     fn set_rate(&self, value: f64) {
-        set_property_float!(self.ctx(), "speed\0", value);
+        _ = set_property_float!(self.ctx(), "speed\0", value);
     }
 
     /// MinimumRate property
     #[dbus_interface(property)]
-    fn minimum_rate(&self) -> f64 {
-        get_property_float!(self.ctx(), "option-info/speed/min\0")
+    fn minimum_rate(&self) -> Result<f64> {
+        get_property_float!(self.ctx(), "option-info/speed/min\0").map_err(From::from)
     }
 
     /// MaximumRate property
     #[dbus_interface(property)]
-    fn maximum_rate(&self) -> f64 {
-        get_property_float!(self.ctx(), "option-info/speed/max\0")
+    fn maximum_rate(&self) -> Result<f64> {
+        get_property_float!(self.ctx(), "option-info/speed/max\0").map_err(From::from)
     }
 
     /// Shuffle property
     #[dbus_interface(property)]
-    fn shuffle(&self) -> bool {
-        get_property_bool!(self.ctx(), "shuffle\0")
+    fn shuffle(&self) -> Result<bool> {
+        get_property_bool!(self.ctx(), "shuffle\0").map_err(From::from)
     }
 
     #[dbus_interface(property)]
     fn set_shuffle(&self, value: bool) {
-        set_property_bool!(self.ctx(), "shuffle\0", value);
+        _ = set_property_bool!(self.ctx(), "shuffle\0", value);
     }
 
     /// Metadata property
     #[dbus_interface(property)]
-    async fn metadata(&self) -> collections::HashMap<&str, zbus::zvariant::Value> {
+    async fn metadata(&self) -> Result<collections::HashMap<&str, zbus::zvariant::Value>> {
         let (path, stream) = (
             get_property!(self.ctx(), "path\0").unwrap_or_default(),
             get_property!(self.ctx(), "stream-open-filename\0").unwrap_or_default(),
@@ -246,7 +247,7 @@ impl PlayerImpl {
 
         if let Some(data) = get_property!(self.ctx(), "metadata\0") {
             let data: collections::HashMap<&str, String> =
-                serde_json::from_str(data.into()).unwrap_or_default();
+                serde_json::from_str(data.into()).map_err(|err| Error::Failed(err.to_string()))?;
             for (key, value) in data {
                 let integer = || -> i64 {
                     value
@@ -275,13 +276,16 @@ impl PlayerImpl {
             }
         }
 
-        if let Ok(path) = zbus::zvariant::ObjectPath::try_from("/io/mpv") {
-            m.insert("mpris:trackid", path.into());
-        }
+        m.insert(
+            "mpris:trackid",
+            zbus::zvariant::ObjectPath::try_from("/io/mpv")
+                .map_err(|err| Error::ZBus(err.into()))?
+                .into(),
+        );
 
         m.insert(
             "mpris:length",
-            ((get_property_float!(self.ctx(), "duration\0") * 1E6) as i64).into(),
+            ((get_property_float!(self.ctx(), "duration\0")? * 1E6) as i64).into(),
         );
 
         if let Some(url) = Url::parse(path).ok().or_else(|| {
@@ -295,29 +299,32 @@ impl PlayerImpl {
             m.insert("mpris:artUrl", url.into());
         }
 
-        m
+        Ok(m)
     }
 
     /// Volume property
     #[dbus_interface(property)]
-    fn volume(&self) -> f64 {
-        get_property_float!(self.ctx(), "volume\0") / 100.0
+    fn volume(&self) -> Result<f64> {
+        Ok(get_property_float!(self.ctx(), "volume\0")? / 100.0)
     }
 
     #[dbus_interface(property)]
     fn set_volume(&self, value: f64) {
-        set_property_float!(self.ctx(), "volume\0", value * 100.0);
+        _ = set_property_float!(self.ctx(), "volume\0", value * 100.0);
     }
 
     /// Position property
     #[dbus_interface(property)]
-    fn position(&self) -> i64 {
-        (get_property_float!(self.ctx(), "playback-time\0") * 1E6) as i64
+    fn position(&self) -> Result<i64> {
+        Ok((get_property_float!(self.ctx(), "playback-time\0")? * 1E6) as i64)
     }
 
     // SetPosition method
     fn set_position(&self, track_id: zbus::zvariant::ObjectPath<'_>, position: i64) {
         _ = track_id;
-        set_property_float!(self.ctx(), "playback-time\0", (position as f64) / 1E6);
+        _ = set_property_float!(self.ctx(), "playback-time\0", (position as f64) / 1E6);
     }
 }
+
+type Error = zbus::fdo::Error;
+type Result<T = ()> = zbus::fdo::Result<T>;

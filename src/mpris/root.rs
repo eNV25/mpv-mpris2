@@ -1,7 +1,7 @@
 use std::{
     env, fs,
     io::{self, BufRead},
-    path, sync,
+    path, result,
 };
 
 use zbus::dbus_interface;
@@ -42,36 +42,28 @@ impl RootImpl {
 
     /// SupportedMimeTypes property
     #[dbus_interface(property)]
-    fn supported_mime_types(&self) -> &'static [String] {
-        static MIME_TYPES: sync::OnceLock<Vec<String>> = sync::OnceLock::new();
-        MIME_TYPES.get_or_init(|| {
-            env::var("XDG_DATA_DIRS")
-                .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_owned())
-                .split(':')
-                .map(path::Path::new)
-                .filter(|&path| path.is_absolute())
-                .map(|dir| dir.join("applications/mpv.desktop"))
-                .filter_map(|path| fs::File::open(path).ok())
-                .flat_map(|f| io::BufReader::new(f).lines())
-                .filter_map(Result::ok)
-                .find_map(|line| line.strip_prefix("MimeType=").map(str::to_owned))
-                .map_or_else(Vec::new, |v| {
-                    v.split_terminator(';').map(str::to_owned).collect()
-                })
-        })
+    fn supported_mime_types(&self) -> Vec<String> {
+        env::var("XDG_DATA_DIRS")
+            .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_owned())
+            .split(':')
+            .map(path::Path::new)
+            .filter(|&path| path.is_absolute())
+            .map(|dir| dir.join("applications/mpv.desktop"))
+            .filter_map(|path| fs::File::open(path).ok())
+            .flat_map(|f| io::BufReader::new(f).lines())
+            .filter_map(result::Result::ok)
+            .find_map(|line| line.strip_prefix("MimeType=").map(str::to_owned))
+            .map_or_else(Vec::new, |v| {
+                v.split_terminator(';').map(str::to_owned).collect()
+            })
     }
 
     /// SupportedUriSchemes property
     #[dbus_interface(property)]
-    fn supported_uri_schemes(&self) -> &'static [String] {
-        static URI_SCHEMES: sync::OnceLock<Vec<String>> = sync::OnceLock::new();
-        URI_SCHEMES.get_or_init(|| {
-            get_property!(self.ctx(), "protocol-list\0")
-                .unwrap_or_default()
-                .split(',')
-                .map(str::to_owned)
-                .collect()
-        })
+    fn supported_uri_schemes(&self) -> Result<Vec<String>> {
+        get_property!(self.ctx(), "protocol-list\0")
+            .ok_or_else(|| Error::Failed("cannot get property".into()))
+            .map(|x| x.split(',').map(str::to_owned).collect())
     }
 
     /// CanQuit property
@@ -82,7 +74,7 @@ impl RootImpl {
 
     /// Quit method
     fn quit(&self) {
-        command!(self.ctx(), "quit\0");
+        _ = command!(self.ctx(), "quit\0");
     }
 
     /// CanRaise property
@@ -99,14 +91,14 @@ impl RootImpl {
 
     /// Fullscreen property
     #[dbus_interface(property)]
-    fn fullscreen(&self) -> bool {
-        get_property_bool!(self.ctx(), "fullscreen\0")
+    fn fullscreen(&self) -> Result<bool> {
+        get_property_bool!(self.ctx(), "fullscreen\0").map_err(From::from)
     }
 
     /// Fullscreen property setter
     #[dbus_interface(property)]
     fn set_fullscreen(&self, value: bool) {
-        set_property_bool!(self.ctx(), "fullscreen\0", value);
+        _ = set_property_bool!(self.ctx(), "fullscreen\0", value);
     }
 
     /// HasTrackList property
@@ -115,3 +107,6 @@ impl RootImpl {
         false
     }
 }
+
+type Error = zbus::fdo::Error;
+type Result<T = ()> = zbus::fdo::Result<T>;

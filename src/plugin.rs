@@ -91,20 +91,27 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
                 }
                 _ => true,
             })
-            .filter_map(|ev| {
-                if ev.event_id != MPV_EVENT_PROPERTY_CHANGE || ev.reply_userdata != REPLY_USERDATA {
-                    return None;
-                }
-                let prop: mpv_event_property = unsafe { *ev.data.cast() };
-                let name = unsafe { ffi::CStr::from_ptr(prop.name) }.to_str();
-                if prop.format != MPV_FORMAT_STRING {
-                    return None;
-                }
-                let value = unsafe { ffi::CStr::from_ptr(*prop.data.cast()) }.to_str();
-                match (name, value) {
-                    (Ok(name), Ok(value)) => Some((name, value)),
+            .filter_map(|ev| match ev {
+                mpv_event {
+                    event_id: MPV_EVENT_PROPERTY_CHANGE,
+                    reply_userdata: REPLY_USERDATA,
+                    error: 0..,
+                    data,
+                } => match unsafe { *data.cast() } {
+                    mpv_event_property {
+                        format: MPV_FORMAT_STRING,
+                        name,
+                        data,
+                    } => match (
+                        unsafe { ffi::CStr::from_ptr(name) }.to_str(),
+                        unsafe { ffi::CStr::from_ptr(*data.cast()) }.to_str(),
+                    ) {
+                        (Ok(name), Ok(value)) => Some((name, value)),
+                        _ => None,
+                    },
                     _ => None,
-                }
+                },
+                _ => None,
             })
             .collect();
 
@@ -112,18 +119,13 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
             return 0;
         }
 
-        if let Some(&"no") = changed.get("keep-open") {
-            keep_open = false;
-        } else {
-            keep_open = true;
-        }
-
         if seeked {
-            let position = get_property_float!(ctx, "playback-time\0") * 1E6;
-            _ = smol::block_on(mpris::PlayerImpl::seeked(
-                player.signal_context(),
-                position as i64,
-            ));
+            if let Ok(position) = get_property_float!(ctx, "playback-time\0") {
+                _ = smol::block_on(mpris::PlayerImpl::seeked(
+                    player.signal_context(),
+                    (position * 1E6) as i64,
+                ));
+            }
         }
 
         macro_rules! signal_changed {
@@ -135,14 +137,17 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
         }
 
         macro_rules! forward_properties {
-            ($changed:expr, $(($iface:expr, $method:ident, $prop0:expr $(, $prop1:expr)*),)+) => {
-                match () {
-                    $(_ if $changed.contains_key($prop0)$( || $changed.contains_key($prop1))* => {
-                        signal_changed!($iface, $method);
-                    })+
-                    _ => {},
-                }
+            ($changed:expr, $(($iface:expr, $method:ident, $prop0:expr $(, $propn:expr)* $(,)?),)+) => {
+                $(if $changed.contains_key($prop0) $(|| $changed.contains_key($propn) )*{
+                    signal_changed!($iface, $method);
+                })+
             };
+        }
+
+        if let Some(&"no") = changed.get("keep-open") {
+            keep_open = false;
+        } else {
+            keep_open = true;
         }
 
         if keep_open && changed.contains_key("eof-reached") {
@@ -161,7 +166,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
                 metadata_changed,
                 "metadata",
                 "media-title",
-                "duration"
+                "duration",
             ),
             (player, volume_changed, "volume"),
             (root, fullscreen_changed, "fullscreen"),

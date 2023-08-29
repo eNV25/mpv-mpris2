@@ -3,6 +3,8 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+use thiserror::Error;
+
 include!(concat!(env!("OUT_DIR"), "/mpv.rs"));
 
 pub use {mpv_end_file_reason::*, mpv_error::*, mpv_event_id::*, mpv_format::*, mpv_log_level::*};
@@ -13,6 +15,53 @@ pub const REPLY_USERDATA: u64 = u64::from_ne_bytes(*b"mpvmpris");
 pub struct Handle(pub *mut mpv_handle);
 unsafe impl Send for Handle {}
 unsafe impl Sync for Handle {}
+
+#[repr(transparent)]
+#[derive(Error, Debug)]
+pub struct Error(pub mpv_error);
+
+impl From<std::ffi::c_int> for mpv_error {
+    fn from(value: std::ffi::c_int) -> Self {
+        unsafe { std::mem::transmute(value) }
+    }
+}
+
+impl From<std::ffi::c_int> for Error {
+    #[inline]
+    fn from(value: i32) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<mpv_error> for Error {
+    #[inline]
+    fn from(value: mpv_error) -> Self {
+        Self(value)
+    }
+}
+
+impl From<Error> for zbus::fdo::Error {
+    #[inline]
+    fn from(value: Error) -> Self {
+        Self::Failed(value.to_string())
+    }
+}
+
+impl std::fmt::Display for mpv_error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = unsafe { std::ffi::CStr::from_ptr(mpv_error_string(*self as _)) }
+            .to_str()
+            .unwrap_or_default();
+        f.write_str(str)
+    }
+}
+
+impl std::fmt::Display for Error {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 #[repr(transparent)]
 #[derive(Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -133,6 +182,13 @@ impl<'a> PartialOrd<String> for Str<'a> {
 }
 
 impl<'a> std::fmt::Debug for Str<'a> {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<'a> std::fmt::Display for Str<'a> {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
