@@ -61,7 +61,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
         "fullscreen\0",
     );
 
-    let mut keep_open;
+    let mut keep_open = false;
     let mut seeking = false;
     loop {
         let mut shutdown = false;
@@ -144,10 +144,8 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
             };
         }
 
-        if let Some(&"no") = changed.get("keep-open") {
-            keep_open = false;
-        } else {
-            keep_open = true;
+        if let Some(&value) = changed.get("keep-open") {
+            keep_open = value != "no";
         }
 
         if keep_open && changed.contains_key("eof-reached") {
