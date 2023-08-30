@@ -7,8 +7,6 @@ use thiserror::Error;
 
 include!(concat!(env!("OUT_DIR"), "/mpv.rs"));
 
-pub use {mpv_end_file_reason::*, mpv_error::*, mpv_event_id::*, mpv_format::*, mpv_log_level::*};
-
 pub const REPLY_USERDATA: u64 = u64::from_ne_bytes(*b"mpvmpris");
 
 #[repr(transparent)]
@@ -19,19 +17,6 @@ unsafe impl Sync for Handle {}
 #[repr(transparent)]
 #[derive(Error)]
 pub struct Error(pub mpv_error);
-
-impl From<std::ffi::c_int> for mpv_error {
-    fn from(value: std::ffi::c_int) -> Self {
-        unsafe { std::mem::transmute(value) }
-    }
-}
-
-impl From<std::ffi::c_int> for Error {
-    #[inline]
-    fn from(value: i32) -> Self {
-        Self(value.into())
-    }
-}
 
 impl From<mpv_error> for Error {
     #[inline]

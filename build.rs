@@ -10,7 +10,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         .allowlist_var(MPV_SYMBOLS)
         .allowlist_type(MPV_SYMBOLS)
         .allowlist_function(MPV_SYMBOLS)
-        .rustified_non_exhaustive_enum(MPV_SYMBOLS)
+        .constified_enum(MPV_SYMBOLS)
+        .prepend_enum_name(false)
         .opaque_type("mpv_handle")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
         .generate()?
