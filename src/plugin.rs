@@ -1,17 +1,15 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)] // mpv_wait_event
 
-#[macro_use]
+use std::{collections::HashMap, ffi::{c_int, CStr}, iter, process};
+
+use crate::mpv::*;
+
 mod mp;
-
-pub(crate) mod mpris;
-pub(crate) mod mpv;
-
-pub(crate) use crate::mpv::*;
-
-use std::{collections, ffi, iter, process};
+mod mpris;
+mod mpv;
 
 #[no_mangle]
-pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
+pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     if ctx.is_null() {
         return 1;
     }
@@ -45,7 +43,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
     // must be kept in sync with the implementations in the
     // dbus interface implementations.
     // It's a bit of a pain in the ass but there's no other way.
-    observe_properties!(
+    observe!(
         ctx,
         "seekable\0",
         "idle-active\0",
@@ -69,7 +67,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
 
         // We don't need to mpv_free() these strings or anything returned by mpv_wait_event(),
         // the API does it automatically.
-        let changed: collections::HashMap<&str, &str> = iter::once(-1.0)
+        let changed: HashMap<&str, &str> = iter::once(-1.0)
             .chain(iter::repeat(0.0))
             .map(|timeout|
                 // SAFETY: event cannot be NULL
@@ -103,8 +101,8 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
                         name,
                         data,
                     } => match (
-                        unsafe { ffi::CStr::from_ptr(name) }.to_str(),
-                        unsafe { ffi::CStr::from_ptr(*data.cast()) }.to_str(),
+                        unsafe { CStr::from_ptr(name) }.to_str(),
+                        unsafe { CStr::from_ptr(*data.cast()) }.to_str(),
                     ) {
                         (Ok(name), Ok(value)) => Some((name, value)),
                         _ => None,
@@ -120,7 +118,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> ffi::c_int {
         }
 
         if seeked {
-            if let Ok(position) = get_property_float!(ctx, "playback-time\0") {
+            if let Ok(position) = get_float!(ctx, "playback-time\0") {
                 _ = smol::block_on(mpris::PlayerImpl::seeked(
                     player.signal_context(),
                     (position * 1E6) as i64,

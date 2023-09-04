@@ -3,5 +3,5 @@ mod player;
 mod root;
 //mod tracklist;
 
-pub(crate) use player::PlayerImpl;
-pub(crate) use root::RootImpl;
+pub use player::PlayerImpl;
+pub use root::RootImpl;
