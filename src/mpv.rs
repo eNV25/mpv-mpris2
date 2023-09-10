@@ -10,6 +10,7 @@ include!(concat!(env!("OUT_DIR"), "/mpv.rs"));
 pub const MPV_MPRIS: u64 = u64::from_ne_bytes(*b"mpvmpris");
 
 #[repr(transparent)]
+#[derive(Clone, Copy)]
 pub struct Handle(pub *mut mpv_handle);
 unsafe impl Send for Handle {}
 unsafe impl Sync for Handle {}
@@ -90,6 +91,13 @@ impl<'a> From<Str<'a>> for &'a str {
     #[inline]
     fn from(value: Str<'a>) -> Self {
         value.0
+    }
+}
+
+impl<'a> From<Str<'a>> for String {
+    #[inline]
+    fn from(value: Str<'a>) -> Self {
+        Self::from(&*value)
     }
 }
 

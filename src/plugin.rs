@@ -72,7 +72,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
 
         // We don't need to mpv_free() these strings or anything returned by mpv_wait_event(),
         // the API does it automatically.
-        let changed: HashSet<String> = iter::once(-1.0)
+        let changed: HashSet<&str> = iter::once(-1.0)
             .chain(iter::repeat(0.0))
             .map(|timeout| unsafe { *mpv_wait_event(ctx, timeout) })
             .take_while(|ev| match ev.event_id {
@@ -103,10 +103,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
                         format: MPV_FORMAT_NONE,
                         name,
                         ..
-                    } => unsafe { CStr::from_ptr(name) }
-                        .to_str()
-                        .ok()
-                        .map(str::to_owned),
+                    } => unsafe { CStr::from_ptr(name) }.to_str().ok(), // we don't need to copy this string, we only need it for hash not value
                     mpv_event_property {
                         format: MPV_FORMAT_STRING,
                         name,

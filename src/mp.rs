@@ -51,7 +51,7 @@ macro_rules! get {
     ($ctx:expr, $prop:expr) => {{
         let (ctx, prop) = ($ctx, $prop);
         unsafe { $crate::mpv_get_property_string(ctx, prop.as_ptr().cast()).as_ref() }
-            .and_then(|s| $crate::Str::try_from(s).ok())
+            .and_then(|s| $crate::Str::try_from(s).ok()).map(String::from)
     }};
 }
 

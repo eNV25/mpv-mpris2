@@ -6,6 +6,7 @@ use url::Url;
 use zbus::{dbus_interface, zvariant};
 
 #[repr(transparent)]
+#[derive(Clone, Copy)]
 pub struct PlayerImpl {
     ctx: crate::Handle,
 }
@@ -20,7 +21,7 @@ impl From<*mut crate::mpv_handle> for PlayerImpl {
 
 impl PlayerImpl {
     #[inline]
-    fn ctx(&self) -> *mut crate::mpv_handle {
+    fn ctx(self) -> *mut crate::mpv_handle {
         self.ctx.0
     }
 }
@@ -189,15 +190,11 @@ impl PlayerImpl {
     /// Metadata property
     #[dbus_interface(property)]
     async fn metadata(&self) -> Result<HashMap<&str, zvariant::Value>> {
-        let (path, stream) = (
-            get!(self.ctx(), "path\0").unwrap_or_default(),
-            get!(self.ctx(), "stream-open-filename\0").unwrap_or_default(),
-        );
-        let (path, stream) = (path.into_str(), stream.into_str());
-
-        let thumb = smol::spawn(async {
-            let (path, stream) = (path.to_owned(), stream.to_owned());
-            if path == stream {
+        let ctx = self.ctx;
+        let thumb = smol::spawn(async move {
+            let ctx = ctx;
+            let path = get!(ctx.0, "path\0").unwrap_or_default();
+            if path == get!(ctx.0, "stream-open-filename\0").unwrap_or_default() {
                 Command::new("ffmpegthumbnailer")
                     .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
                     .arg(&path)
@@ -245,7 +242,7 @@ impl PlayerImpl {
 
         if let Some(data) = get!(self.ctx(), "metadata\0") {
             let data: HashMap<&str, String> =
-                serde_json::from_str(data.into()).map_err(|err| Error::Failed(err.to_string()))?;
+                serde_json::from_str(&data).map_err(|err| Error::Failed(err.to_string()))?;
             for (key, value) in data {
                 let integer = || -> i64 {
                     value
@@ -287,9 +284,10 @@ impl PlayerImpl {
             ((get_float!(self.ctx(), "duration\0")? * 1E6) as i64).into(),
         );
 
-        if let Some(url) = Url::parse(path).ok().or_else(|| {
+        let path = get!(self.ctx(), "path\0").unwrap_or_default();
+        if let Some(url) = Url::parse(&path).ok().or_else(|| {
             get!(self.ctx(), "working-directory\0")
-                .and_then(|dir| Url::from_file_path(Path::new(dir.into()).join(path)).ok())
+                .and_then(|dir| Url::from_file_path(Path::new(&dir).join(&path)).ok())
         }) {
             m.insert("mpris:url", url.as_str().to_owned().into());
         }
