@@ -19,6 +19,7 @@ zbus = "3.14.1"
 
 [build-dependencies]
 bindgen = "0.66.1"
+pkg-config = "0.3.27"
 
 [profile.release]
 lto = true
