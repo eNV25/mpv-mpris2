@@ -103,7 +103,10 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
                         format: MPV_FORMAT_NONE,
                         name,
                         ..
-                    } => unsafe { CStr::from_ptr(name) }.to_str().ok().map(str::to_owned),
+                    } => unsafe { CStr::from_ptr(name) }
+                        .to_str()
+                        .ok()
+                        .map(str::to_owned),
                     mpv_event_property {
                         format: MPV_FORMAT_STRING,
                         name,
