@@ -7,7 +7,7 @@ use thiserror::Error;
 
 include!(concat!(env!("OUT_DIR"), "/mpv.rs"));
 
-pub const REPLY_USERDATA: u64 = u64::from_ne_bytes(*b"mpvmpris");
+pub const MPV_MPRIS: u64 = u64::from_ne_bytes(*b"mpvmpris");
 
 #[repr(transparent)]
 pub struct Handle(pub *mut mpv_handle);

@@ -101,16 +101,25 @@ macro_rules! set {
 }
 
 macro_rules! observe_format {
-    ($ctx:expr, $prop:expr, $format:expr) => {{
-        let (ctx, prop, format) = ($ctx, assert_cstr!($prop), $format);
+    ($ctx:expr, $userdata:expr, $prop:expr, $format:expr) => {{
+        let (ctx, userdata, prop, format) = ($ctx, $userdata, assert_cstr!($prop), $format);
         unsafe {
-            $crate::mpv_observe_property(ctx, $crate::REPLY_USERDATA, prop.as_ptr().cast(), format);
+            $crate::mpv_observe_property(ctx, userdata, prop.as_ptr().cast(), format);
         }
     }};
 }
 
 macro_rules! observe {
     ($ctx:expr, $($prop:expr),+ $(,)?) => {
-        $(observe_format!($ctx, $prop, $crate::MPV_FORMAT_STRING));+
+        $(observe_format!($ctx, $crate::MPV_MPRIS, $prop, $crate::MPV_FORMAT_NONE));+
+    };
+}
+
+macro_rules! unobserve {
+    ($ctx:expr$(, $userdata:expr)+)=> {
+        $({
+            let (ctx, userdata) = ($ctx, $userdata);
+            unsafe { mpv_unobserve_property(ctx, userdata); }
+        })+
     };
 }

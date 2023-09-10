@@ -1,6 +1,10 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)] // mpv_wait_event
 
-use std::{collections::HashMap, ffi::{c_int, CStr}, iter, process};
+use std::{
+    collections::HashSet,
+    ffi::{c_int, CStr},
+    iter, process,
+};
 
 use crate::mpv::*;
 
@@ -47,8 +51,6 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
         ctx,
         "seekable\0",
         "idle-active\0",
-        "keep-open\0",
-        "eof-reached\0",
         "pause\0",
         "loop-file\0",
         "loop-playlist\0",
@@ -59,7 +61,10 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
         "fullscreen\0",
     );
 
-    let mut keep_open = false;
+    observe_format!(ctx, MPV_MPRIS, "keep-open\0", MPV_FORMAT_STRING);
+
+    const EOF_REACHED: u64 = u64::from_ne_bytes(*b"mpvEOFed");
+
     let mut seeking = false;
     loop {
         let mut shutdown = false;
@@ -67,11 +72,9 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
 
         // We don't need to mpv_free() these strings or anything returned by mpv_wait_event(),
         // the API does it automatically.
-        let changed: HashMap<&str, &str> = iter::once(-1.0)
+        let changed: HashSet<String> = iter::once(-1.0)
             .chain(iter::repeat(0.0))
-            .map(|timeout|
-                // SAFETY: event cannot be NULL
-                unsafe { mpv_wait_event(ctx, timeout).as_ref().unwrap_unchecked() })
+            .map(|timeout| unsafe { *mpv_wait_event(ctx, timeout) })
             .take_while(|ev| match ev.event_id {
                 MPV_EVENT_NONE => false,
                 MPV_EVENT_SHUTDOWN => {
@@ -92,10 +95,15 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
             .filter_map(|ev| match ev {
                 mpv_event {
                     event_id: MPV_EVENT_PROPERTY_CHANGE,
-                    reply_userdata: REPLY_USERDATA,
+                    reply_userdata: MPV_MPRIS | EOF_REACHED,
                     error: 0..,
                     data,
                 } => match unsafe { *data.cast() } {
+                    mpv_event_property {
+                        format: MPV_FORMAT_NONE,
+                        name,
+                        ..
+                    } => unsafe { CStr::from_ptr(name) }.to_str().ok().map(str::to_owned),
                     mpv_event_property {
                         format: MPV_FORMAT_STRING,
                         name,
@@ -104,7 +112,15 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
                         unsafe { CStr::from_ptr(name) }.to_str(),
                         unsafe { CStr::from_ptr(*data.cast()) }.to_str(),
                     ) {
-                        (Ok(name), Ok(value)) => Some((name, value)),
+                        (Ok("keep-open"), Ok(value)) => {
+                            if value == "no" {
+                                unobserve!(ctx, EOF_REACHED);
+                                None
+                            } else {
+                                observe_format!(ctx, EOF_REACHED, "eof-reached\0", MPV_FORMAT_NONE);
+                                None
+                            }
+                        }
                         _ => None,
                     },
                     _ => None,
@@ -136,24 +152,22 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
 
         macro_rules! forward_properties {
             ($changed:expr, $(($iface:expr, $method:ident, $prop0:expr $(, $propn:expr)* $(,)?),)+) => {
-                $(if $changed.contains_key($prop0) $(|| $changed.contains_key($propn) )*{
+                $(if $changed.contains($prop0) $(|| $changed.contains($propn) )*{
                     signal_changed!($iface, $method);
                 })+
             };
         }
 
-        if let Some(&value) = changed.get("keep-open") {
-            keep_open = value != "no";
-        }
-
-        if keep_open && changed.contains_key("eof-reached") {
-            signal_changed!(player, playback_status_changed);
-        }
-
         forward_properties!(
             changed,
             (player, can_seek_changed, "seekable"),
-            (player, playback_status_changed, "idle-active", "pause"),
+            (
+                player,
+                playback_status_changed,
+                "idle-active",
+                "eof-reached",
+                "pause",
+            ),
             (player, loop_status_changed, "loop-file", "loop-playlist"),
             (player, rate_changed, "speed"),
             (player, shuffle_changed, "shuffle"),

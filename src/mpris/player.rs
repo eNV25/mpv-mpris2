@@ -110,9 +110,7 @@ impl PlayerImpl {
     /// PlaybackStatus property
     #[dbus_interface(property)]
     fn playback_status(&self) -> Result<&str> {
-        if get_bool!(self.ctx(), "idle-active\0")?
-            || get_bool!(self.ctx(), "eof-reached\0")?
-        {
+        if get_bool!(self.ctx(), "idle-active\0")? || get_bool!(self.ctx(), "eof-reached\0")? {
             Ok("Stopped")
         } else if get_bool!(self.ctx(), "pause\0")? {
             Ok("Paused")
