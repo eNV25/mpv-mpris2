@@ -30,61 +30,62 @@ impl PlayerImpl {
 impl PlayerImpl {
     /// CanGoNext property
     #[dbus_interface(property)]
-    fn can_go_next(&self) -> bool {
+    fn can_go_next(self) -> bool {
+        _ = self;
         true
     }
 
     /// Next method
-    fn next(&self) {
+    fn next(self) {
         _ = command!(self.ctx(), "playlist-next\0");
     }
 
     /// CanGoPrevious property
     #[dbus_interface(property)]
-    fn can_go_previous(&self) -> bool {
+    fn can_go_previous(self) -> bool {
         true
     }
 
     /// Previous method
-    fn previous(&self) {
+    fn previous(self) {
         _ = command!(self.ctx(), "playlist-prev\0");
     }
 
     /// CanPause property
     #[dbus_interface(property)]
-    fn can_pause(&self) -> bool {
+    fn can_pause(self) -> bool {
         true
     }
 
     /// Pause method
-    fn pause(&self) {
+    fn pause(self) {
         _ = set_bool!(self.ctx(), "pause\0", true);
     }
 
     /// PlayPause method
-    fn play_pause(&self) {
+    fn play_pause(self) {
         _ = command!(self.ctx(), "cycle\0", "pause\0");
     }
 
     /// CanPlay property
     #[dbus_interface(property)]
-    fn can_play(&self) -> bool {
+    fn can_play(self) -> bool {
         true
     }
 
     /// Play method
-    fn play(&self) {
+    fn play(self) {
         _ = set_bool!(self.ctx(), "pause\0", false);
     }
 
     /// CanSeek property
     #[dbus_interface(property)]
-    fn can_seek(&self) -> Result<bool> {
+    fn can_seek(self) -> Result<bool> {
         get_bool!(self.ctx(), "seekable\0").map_err(From::from)
     }
 
     /// Seek method
-    fn seek(&self, offset: i64) {
+    fn seek(self, offset: i64) {
         _ = command!(self.ctx(), "seek\0", format!("{}\0", (offset as f64) / 1E6));
     }
 
@@ -93,24 +94,24 @@ impl PlayerImpl {
     pub async fn seeked(ctxt: &zbus::SignalContext<'_>, position: i64) -> zbus::Result<()>;
 
     // OpenUri method
-    fn open_uri(&self, uri: &str) {
+    fn open_uri(self, uri: &str) {
         _ = command!(self.ctx(), "loadfile\0", format!("{}\0", uri));
     }
 
     /// CanControl property
     #[dbus_interface(property)]
-    fn can_control(&self) -> bool {
+    fn can_control(self) -> bool {
         true
     }
 
     /// Stop method
-    fn stop(&self) {
+    fn stop(self) {
         _ = command!(self.ctx(), "stop\0");
     }
 
     /// PlaybackStatus property
     #[dbus_interface(property)]
-    fn playback_status(&self) -> Result<&str> {
+    fn playback_status(self) -> Result<&'static str> {
         if get_bool!(self.ctx(), "idle-active\0")? || get_bool!(self.ctx(), "eof-reached\0")? {
             Ok("Stopped")
         } else if get_bool!(self.ctx(), "pause\0")? {
@@ -122,7 +123,7 @@ impl PlayerImpl {
 
     /// LoopStatus property
     #[dbus_interface(property)]
-    fn loop_status(&self) -> Result<&str> {
+    fn loop_status(self) -> Result<&'static str> {
         let err = || Error::Failed("cannot get property".into());
         if get!(self.ctx(), "loop-file\0").ok_or_else(err)? != "no" {
             Ok("Track")
@@ -134,7 +135,7 @@ impl PlayerImpl {
     }
 
     #[dbus_interface(property)]
-    fn set_loop_status(&self, value: &str) {
+    fn set_loop_status(self, value: &str) {
         _ = set!(
             self.ctx(),
             "loop-file\0",
@@ -155,46 +156,49 @@ impl PlayerImpl {
 
     /// Rate property
     #[dbus_interface(property)]
-    fn rate(&self) -> Result<f64> {
+    fn rate(self) -> Result<f64> {
         get_float!(self.ctx(), "speed\0").map_err(From::from)
     }
 
     #[dbus_interface(property)]
-    fn set_rate(&self, value: f64) {
+    fn set_rate(self, value: f64) {
         _ = set_float!(self.ctx(), "speed\0", value);
     }
 
     /// MinimumRate property
     #[dbus_interface(property)]
-    fn minimum_rate(&self) -> Result<f64> {
+    fn minimum_rate(self) -> Result<f64> {
         get_float!(self.ctx(), "option-info/speed/min\0").map_err(From::from)
     }
 
     /// MaximumRate property
     #[dbus_interface(property)]
-    fn maximum_rate(&self) -> Result<f64> {
+    fn maximum_rate(self) -> Result<f64> {
         get_float!(self.ctx(), "option-info/speed/max\0").map_err(From::from)
     }
 
     /// Shuffle property
     #[dbus_interface(property)]
-    fn shuffle(&self) -> Result<bool> {
+    fn shuffle(self) -> Result<bool> {
         get_bool!(self.ctx(), "shuffle\0").map_err(From::from)
     }
 
     #[dbus_interface(property)]
-    fn set_shuffle(&self, value: bool) {
+    fn set_shuffle(self, value: bool) {
         _ = set_bool!(self.ctx(), "shuffle\0", value);
     }
 
     /// Metadata property
     #[dbus_interface(property)]
-    async fn metadata(&self) -> Result<HashMap<&str, zvariant::Value>> {
-        let ctx = self.ctx;
+    async fn metadata(self) -> Result<HashMap<&'static str, zvariant::OwnedValue>> {
+        macro_rules! value {
+            ($value:expr) => {
+                zvariant::Value::from($value).to_owned()
+            };
+        }
         let thumb = smol::spawn(async move {
-            let ctx = ctx;
-            let path = get!(ctx.0, "path\0").unwrap_or_default();
-            if path == get!(ctx.0, "stream-open-filename\0").unwrap_or_default() {
+            let path = get!(self.ctx(), "path\0").unwrap_or_default();
+            if path == get!(self.ctx(), "stream-open-filename\0").unwrap_or_default() {
                 Command::new("ffmpegthumbnailer")
                     .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
                     .arg(&path)
@@ -237,7 +241,7 @@ impl PlayerImpl {
         let mut m = HashMap::new();
 
         if let Some(s) = get!(self.ctx(), "media-title\0") {
-            m.insert("xesam:title", s.to_owned().into());
+            m.insert("xesam:title", value!(s));
         }
 
         if let Some(data) = get!(self.ctx(), "metadata\0") {
@@ -252,19 +256,19 @@ impl PlayerImpl {
                         .unwrap_or_default()
                 };
                 let (key, value) = match key.to_ascii_lowercase().as_str() {
-                    "album" => ("xesam:album", value.into()),
-                    "title" => ("xesam:title", value.into()),
-                    "album_artist" => ("xesam:albumArtist", vec![value].into()),
-                    "artist" => ("xesam:artist", vec![value].into()),
-                    "comment" => ("xesam:comment", vec![value].into()),
-                    "composer" => ("xesam:composer", vec![value].into()),
-                    "genre" => ("xesam:genre", vec![value].into()),
-                    "lyricist" => ("xesam:lyricist", vec![value].into()),
-                    "tbp" | "tbpm" | "bpm" => ("xesam:audioBPM", integer().into()),
-                    "disc" => ("xesam:discNumber", integer().into()),
-                    "track" => ("xesam:trackNumber", integer().into()),
+                    "album" => ("xesam:album", value!(value)),
+                    "title" => ("xesam:title", value!(value)),
+                    "album_artist" => ("xesam:albumArtist", value!(vec![value])),
+                    "artist" => ("xesam:artist", value!(vec![value])),
+                    "comment" => ("xesam:comment", value!(vec![value])),
+                    "composer" => ("xesam:composer", value!(vec![value])),
+                    "genre" => ("xesam:genre", value!(vec![value])),
+                    "lyricist" => ("xesam:lyricist", value!(vec![value])),
+                    "tbp" | "tbpm" | "bpm" => ("xesam:audioBPM", value!(integer())),
+                    "disc" => ("xesam:discNumber", value!(integer())),
+                    "track" => ("xesam:trackNumber", value!(integer())),
                     lyrics if lyrics.strip_prefix("lyrics").is_some() => {
-                        ("xesam:asText", value.into())
+                        ("xesam:asText", value!(value))
                     }
                     _ => continue,
                 };
@@ -289,11 +293,11 @@ impl PlayerImpl {
             get!(self.ctx(), "working-directory\0")
                 .and_then(|dir| Url::from_file_path(Path::new(&dir).join(&path)).ok())
         }) {
-            m.insert("mpris:url", url.as_str().to_owned().into());
+            m.insert("mpris:url", value!(url.as_str()));
         }
 
         if let Some(url) = thumb.await {
-            m.insert("mpris:artUrl", url.into());
+            m.insert("mpris:artUrl", value!(url));
         }
 
         Ok(m)
@@ -301,23 +305,23 @@ impl PlayerImpl {
 
     /// Volume property
     #[dbus_interface(property)]
-    fn volume(&self) -> Result<f64> {
+    fn volume(self) -> Result<f64> {
         Ok(get_float!(self.ctx(), "volume\0")? / 100.0)
     }
 
     #[dbus_interface(property)]
-    fn set_volume(&self, value: f64) {
+    fn set_volume(self, value: f64) {
         _ = set_float!(self.ctx(), "volume\0", value * 100.0);
     }
 
     /// Position property
     #[dbus_interface(property)]
-    fn position(&self) -> Result<i64> {
+    fn position(self) -> Result<i64> {
         Ok((get_float!(self.ctx(), "playback-time\0")? * 1E6) as i64)
     }
 
     // SetPosition method
-    fn set_position(&self, track_id: zvariant::ObjectPath<'_>, position: i64) {
+    fn set_position(self, track_id: zvariant::ObjectPath<'_>, position: i64) {
         _ = track_id;
         _ = set_float!(self.ctx(), "playback-time\0", (position as f64) / 1E6);
     }

@@ -97,7 +97,7 @@ impl<'a> From<Str<'a>> for &'a str {
 impl<'a> From<Str<'a>> for String {
     #[inline]
     fn from(value: Str<'a>) -> Self {
-        Self::from(&*value)
+        Self::from(value.0)
     }
 }
 
