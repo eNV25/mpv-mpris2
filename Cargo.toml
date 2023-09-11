@@ -1,6 +1,6 @@
 [package]
 name = "mpv-mpris2"
-version = "0.0.1-alpha7"
+version = "0.0.1-alpha8"
 edition = "2021"
 
 [lib]
