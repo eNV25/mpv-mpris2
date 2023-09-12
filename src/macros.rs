@@ -19,6 +19,18 @@ macro_rules! command {
 
 macro_rules! get {
     ($ctx:ident, $prop:literal) => {
+        get!($ctx, $prop, MPV_FORMAT_STRING)
+    };
+    ($ctx:ident, $prop:literal, bool) => {
+        get!($ctx, $prop, MPV_FORMAT_FLAG).map(|x| x != 0)
+    };
+    ($ctx:ident, $prop:literal, i64) => {
+        get!($ctx, $prop, MPV_FORMAT_INT64)
+    };
+    ($ctx:ident, $prop:literal, f64) => {
+        get!($ctx, $prop, MPV_FORMAT_DOUBLE)
+    };
+    ($ctx:ident, $prop:literal, MPV_FORMAT_STRING) => {
         unsafe {
             $crate::mpv_get_property_string($ctx.into(), assert_cstr!($prop).as_ptr().cast())
                 .as_ref()
@@ -26,10 +38,20 @@ macro_rules! get {
         .and_then(|s| $crate::Str::try_from(s).ok())
         .map(String::from)
     };
-    ($ctx:ident, $prop:literal, bool) => {
-        get!($ctx, $prop, MPV_FORMAT_FLAG, std::ffi::c_int::default()).map(|x| x != 0)
+    ($ctx:ident, $prop:literal, MPV_FORMAT_OSD_STRING) => {
+        get!($ctx, $prop, MPV_FORMAT_OSD_STRING, std::ptr::null::<std::ffi::c_char>())
+        .ok()
+        .and_then(|s| unsafe { s.as_ref() })
+        .and_then(|s| $crate::Str::try_from(s).ok())
+        .map(String::from)
     };
-    ($ctx:ident, $prop:literal, f64) => {
+    ($ctx:ident, $prop:literal, MPV_FORMAT_FLAG) => {
+        get!($ctx, $prop, MPV_FORMAT_FLAG, std::ffi::c_int::default())
+    };
+    ($ctx:ident, $prop:literal, MPV_FORMAT_INT64) => {
+        get!($ctx, $prop, MPV_FORMAT_INT64, i64::default())
+    };
+    ($ctx:ident, $prop:literal, MPV_FORMAT_DOUBLE) => {
         get!($ctx, $prop, MPV_FORMAT_DOUBLE, f64::default())
     };
     ($ctx:ident, $prop:literal, $format:ident, $default:expr) => {{
@@ -54,6 +76,9 @@ macro_rules! set {
     };
     ($ctx:ident, $prop:literal, bool, $data:expr) => {
         set!($ctx, $prop, MPV_FORMAT_FLAG, $data as std::ffi::c_int)
+    };
+    ($ctx:ident, $prop:literal, i64, $data:expr) => {
+        set!($ctx, $prop, MPV_FORMAT_INT64, $data as i64)
     };
     ($ctx:ident, $prop:literal, f64, $data:expr) => {
         set!($ctx, $prop, MPV_FORMAT_DOUBLE, $data as f64)
