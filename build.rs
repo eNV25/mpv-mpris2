@@ -2,10 +2,9 @@ use std::{env, error, path::Path};
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     const MPV_SYMBOLS: &str = "(?i:mpv_).*";
-    let header = Path::new(&pkg_config::get_variable("mpv", "includedir")?)
-        .join("mpv/client.h");
+    let header = Path::new(&pkg_config::get_variable("mpv", "includedir")?).join("mpv/client.h");
     let header = <&str>::try_from(header.as_os_str())?;
-    let output = Path::new(&env::var("OUT_DIR")?).join("mpv.rs");
+    let output = Path::new(&env::var("OUT_DIR")?).join("ffi.rs");
     bindgen::builder()
         .header(header)
         .clang_arg("-Wp,-D_FORTIFY_SOURCE=2")

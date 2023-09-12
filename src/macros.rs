@@ -1,0 +1,101 @@
+#![macro_use]
+
+macro_rules! assert_cstr {
+    ($s:expr) => {{
+        debug_assert_eq!($s.as_bytes().last(), Some(&b'\0'));
+        $s
+    }};
+}
+
+macro_rules! command {
+    ($ctx:ident, $($arg:expr),+ $(,)?) => {{
+        let args = [$(assert_cstr!($arg).as_ptr()),+, std::ptr::null()];
+        match unsafe { $crate::mpv_command($ctx.into(), std::ptr::addr_of!(args).cast_mut().cast()) } {
+            0.. => Ok(()),
+            error => Err($crate::Error(error.into())),
+        }
+    }};
+}
+
+macro_rules! get {
+    ($ctx:ident, $prop:literal) => {
+        unsafe {
+            $crate::mpv_get_property_string($ctx.into(), assert_cstr!($prop).as_ptr().cast())
+                .as_ref()
+        }
+        .and_then(|s| $crate::Str::try_from(s).ok())
+        .map(String::from)
+    };
+    ($ctx:ident, $prop:literal, bool) => {
+        get!($ctx, $prop, MPV_FORMAT_FLAG, std::ffi::c_int::default()).map(|x| x != 0)
+    };
+    ($ctx:ident, $prop:literal, f64) => {
+        get!($ctx, $prop, MPV_FORMAT_DOUBLE, f64::default())
+    };
+    ($ctx:ident, $prop:literal, $format:ident, $default:expr) => {{
+        let mut data = $default;
+        match unsafe {
+            $crate::mpv_get_property(
+                $ctx.into(),
+                assert_cstr!($prop).as_ptr().cast(),
+                $crate::$format,
+                std::ptr::addr_of_mut!(data).cast(),
+            )
+        } {
+            0.. => Ok(data),
+            error => Err($crate::Error(error.into())),
+        }
+    }};
+}
+
+macro_rules! set {
+    ($ctx:ident, $prop:literal, $data:expr) => {
+        set!($ctx, $prop, MPV_FORMAT_STRING, assert_cstr!($data).as_ptr())
+    };
+    ($ctx:ident, $prop:literal, bool, $data:expr) => {
+        set!($ctx, $prop, MPV_FORMAT_FLAG, $data as std::ffi::c_int)
+    };
+    ($ctx:ident, $prop:literal, f64, $data:expr) => {
+        set!($ctx, $prop, MPV_FORMAT_DOUBLE, $data as f64)
+    };
+    ($ctx:ident, $prop:literal, $format:ident, $data:expr) => {{
+        let data = $data;
+        match unsafe {
+            $crate::mpv_set_property(
+                $ctx.into(),
+                assert_cstr!($prop).as_ptr().cast(),
+                $crate::$format,
+                std::ptr::addr_of!(data).cast_mut().cast(),
+            )
+        } {
+            0.. => Ok(()),
+            error => Err($crate::Error(error.into())),
+        }
+    }};
+}
+
+macro_rules! observe {
+    ($ctx:ident, $($prop:literal),+ $(,)?) => {
+        $(observe!($ctx, 0, $prop, MPV_FORMAT_NONE));+
+    };
+    ($ctx:ident, $prop:literal, $format:ident) => {
+        observe!($ctx, 0, $prop, $format)
+    };
+    ($ctx:ident, $userdata:expr, $prop:literal, $format:ident) => {{
+        let userdata = $userdata;
+        unsafe {
+            $crate::mpv_observe_property(
+                $ctx.into(),
+                userdata,
+                assert_cstr!($prop).as_ptr().cast(),
+                $crate::$format,
+            );
+        }
+    }};
+}
+
+macro_rules! unobserve {
+    ($ctx:ident$(, $userdata:ident)+)=> {
+        $(unsafe { mpv_unobserve_property($ctx.into(), $userdata); })+
+    };
+}

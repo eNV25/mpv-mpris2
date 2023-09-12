@@ -1,4 +1,12 @@
-use std::{collections::HashMap, io, path::Path, result, time::Duration};
+use std::{
+    collections::HashMap,
+    env,
+    fs::File,
+    io::{self, BufRead, BufReader},
+    path::Path,
+    result,
+    time::Duration,
+};
 
 use data_encoding::BASE64;
 use smol::{future::FutureExt, process::Command, Timer};
@@ -7,27 +15,130 @@ use zbus::{dbus_interface, zvariant};
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct PlayerImpl {
-    ctx: crate::Handle,
-}
+pub struct Root(crate::Handle);
 
-impl From<*mut crate::mpv_handle> for PlayerImpl {
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct Player(crate::Handle);
+
+impl From<*mut crate::mpv_handle> for Root {
     fn from(value: *mut crate::mpv_handle) -> Self {
-        Self {
-            ctx: crate::Handle(value),
-        }
+        Self(crate::Handle(value))
     }
 }
 
-impl PlayerImpl {
+impl From<*mut crate::mpv_handle> for Player {
     #[inline]
-    fn ctx(self) -> *mut crate::mpv_handle {
-        self.ctx.0
+    fn from(value: *mut crate::mpv_handle) -> Self {
+        Self(crate::Handle(value))
+    }
+}
+
+impl From<Root> for *mut crate::mpv_handle {
+    #[inline]
+    fn from(value: Root) -> Self {
+        value.0 .0
+    }
+}
+
+impl From<Player> for *mut crate::mpv_handle {
+    #[inline]
+    fn from(value: Player) -> Self {
+        value.0 .0
+    }
+}
+
+#[dbus_interface(name = "org.mpris.MediaPlayer2")]
+impl Root {
+    /// DesktopEntry property
+    #[dbus_interface(property)]
+    fn desktop_entry(self) -> &'static str {
+        _ = self;
+        "mpv"
+    }
+
+    /// Identity property
+    #[dbus_interface(property)]
+    fn identity(self) -> &'static str {
+        _ = self;
+        "mpv Media Player"
+    }
+
+    /// SupportedMimeTypes property
+    #[dbus_interface(property)]
+    fn supported_mime_types(self) -> Vec<String> {
+        _ = self;
+        env::var("XDG_DATA_DIRS")
+            .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_owned())
+            .split(':')
+            .map(Path::new)
+            .filter(|&path| path.is_absolute())
+            .map(|dir| dir.join("applications/mpv.desktop"))
+            .filter_map(|path| File::open(path).ok().map(BufReader::new))
+            .flat_map(BufRead::lines)
+            .filter_map(Result::ok)
+            .find_map(|line| line.strip_prefix("MimeType=").map(str::to_owned))
+            .map_or_else(Vec::new, |v| {
+                v.split_terminator(';').map(str::to_owned).collect()
+            })
+    }
+
+    /// SupportedUriSchemes property
+    #[dbus_interface(property)]
+    fn supported_uri_schemes(self) -> Result<Vec<String>> {
+        get!(self, "protocol-list\0")
+            .ok_or_else(|| Error::Failed("cannot get protocol-list".into()))
+            .map(|x| x.split(',').map(str::to_owned).collect())
+    }
+
+    /// CanQuit property
+    #[dbus_interface(property)]
+    fn can_quit(self) -> bool {
+        _ = self;
+        true
+    }
+
+    /// Quit method
+    fn quit(self) {
+        _ = command!(self, "quit\0");
+    }
+
+    /// CanRaise property
+    #[dbus_interface(property)]
+    fn can_raise(self) -> bool {
+        _ = self;
+        false
+    }
+
+    /// CanSetFullscreen property
+    #[dbus_interface(property)]
+    fn can_set_fullscreen(self) -> bool {
+        _ = self;
+        true
+    }
+
+    /// Fullscreen property
+    #[dbus_interface(property)]
+    fn fullscreen(self) -> Result<bool> {
+        get!(self, "fullscreen\0", bool).map_err(From::from)
+    }
+
+    /// Fullscreen property setter
+    #[dbus_interface(property)]
+    fn set_fullscreen(self, value: bool) {
+        _ = set!(self, "fullscreen\0", bool, value);
+    }
+
+    /// HasTrackList property
+    #[dbus_interface(property)]
+    fn has_track_list(self) -> bool {
+        _ = self;
+        false
     }
 }
 
 #[dbus_interface(name = "org.mpris.MediaPlayer2.Player")]
-impl PlayerImpl {
+impl Player {
     /// CanGoNext property
     #[dbus_interface(property)]
     fn can_go_next(self) -> bool {
@@ -37,7 +148,7 @@ impl PlayerImpl {
 
     /// Next method
     fn next(self) {
-        _ = command!(self.ctx(), "playlist-next\0");
+        _ = command!(self, "playlist-next\0");
     }
 
     /// CanGoPrevious property
@@ -48,7 +159,7 @@ impl PlayerImpl {
 
     /// Previous method
     fn previous(self) {
-        _ = command!(self.ctx(), "playlist-prev\0");
+        _ = command!(self, "playlist-prev\0");
     }
 
     /// CanPause property
@@ -59,12 +170,12 @@ impl PlayerImpl {
 
     /// Pause method
     fn pause(self) {
-        _ = set_bool!(self.ctx(), "pause\0", true);
+        _ = set!(self, "pause\0", bool, true);
     }
 
     /// PlayPause method
     fn play_pause(self) {
-        _ = command!(self.ctx(), "cycle\0", "pause\0");
+        _ = command!(self, "cycle\0", "pause\0");
     }
 
     /// CanPlay property
@@ -75,18 +186,18 @@ impl PlayerImpl {
 
     /// Play method
     fn play(self) {
-        _ = set_bool!(self.ctx(), "pause\0", false);
+        _ = set!(self, "pause\0", bool, false);
     }
 
     /// CanSeek property
     #[dbus_interface(property)]
     fn can_seek(self) -> Result<bool> {
-        get_bool!(self.ctx(), "seekable\0").map_err(From::from)
+        get!(self, "seekable\0", bool).map_err(From::from)
     }
 
     /// Seek method
     fn seek(self, offset: i64) {
-        _ = command!(self.ctx(), "seek\0", format!("{}\0", (offset as f64) / 1E6));
+        _ = command!(self, "seek\0", format!("{}\0", (offset as f64) / 1E6));
     }
 
     /// Seeked signal
@@ -95,7 +206,7 @@ impl PlayerImpl {
 
     // OpenUri method
     fn open_uri(self, uri: &str) {
-        _ = command!(self.ctx(), "loadfile\0", format!("{}\0", uri));
+        _ = command!(self, "loadfile\0", format!("{}\0", uri));
     }
 
     /// CanControl property
@@ -106,15 +217,15 @@ impl PlayerImpl {
 
     /// Stop method
     fn stop(self) {
-        _ = command!(self.ctx(), "stop\0");
+        _ = command!(self, "stop\0");
     }
 
     /// PlaybackStatus property
     #[dbus_interface(property)]
     fn playback_status(self) -> Result<&'static str> {
-        if get_bool!(self.ctx(), "idle-active\0")? || get_bool!(self.ctx(), "eof-reached\0")? {
+        if get!(self, "idle-active\0", bool)? || get!(self, "eof-reached\0", bool)? {
             Ok("Stopped")
-        } else if get_bool!(self.ctx(), "pause\0")? {
+        } else if get!(self, "pause\0", bool)? {
             Ok("Paused")
         } else {
             Ok("Playing")
@@ -125,9 +236,9 @@ impl PlayerImpl {
     #[dbus_interface(property)]
     fn loop_status(self) -> Result<&'static str> {
         let err = || Error::Failed("cannot get property".into());
-        if get!(self.ctx(), "loop-file\0").ok_or_else(err)? != "no" {
+        if get!(self, "loop-file\0").ok_or_else(err)? != "no" {
             Ok("Track")
-        } else if get!(self.ctx(), "loop-playlist\0").ok_or_else(err)? != "no" {
+        } else if get!(self, "loop-playlist\0").ok_or_else(err)? != "no" {
             Ok("Playlist")
         } else {
             Ok("None")
@@ -137,7 +248,7 @@ impl PlayerImpl {
     #[dbus_interface(property)]
     fn set_loop_status(self, value: &str) {
         _ = set!(
-            self.ctx(),
+            self,
             "loop-file\0",
             match value {
                 "Track" => "inf\0",
@@ -145,7 +256,7 @@ impl PlayerImpl {
             }
         );
         _ = set!(
-            self.ctx(),
+            self,
             "loop-playlist\0",
             match value {
                 "Playlist" => "inf\0",
@@ -157,35 +268,35 @@ impl PlayerImpl {
     /// Rate property
     #[dbus_interface(property)]
     fn rate(self) -> Result<f64> {
-        get_float!(self.ctx(), "speed\0").map_err(From::from)
+        get!(self, "speed\0", f64).map_err(From::from)
     }
 
     #[dbus_interface(property)]
     fn set_rate(self, value: f64) {
-        _ = set_float!(self.ctx(), "speed\0", value);
+        _ = set!(self, "speed\0", f64, value);
     }
 
     /// MinimumRate property
     #[dbus_interface(property)]
     fn minimum_rate(self) -> Result<f64> {
-        get_float!(self.ctx(), "option-info/speed/min\0").map_err(From::from)
+        get!(self, "option-info/speed/min\0", f64).map_err(From::from)
     }
 
     /// MaximumRate property
     #[dbus_interface(property)]
     fn maximum_rate(self) -> Result<f64> {
-        get_float!(self.ctx(), "option-info/speed/max\0").map_err(From::from)
+        get!(self, "option-info/speed/max\0", f64).map_err(From::from)
     }
 
     /// Shuffle property
     #[dbus_interface(property)]
     fn shuffle(self) -> Result<bool> {
-        get_bool!(self.ctx(), "shuffle\0").map_err(From::from)
+        get!(self, "shuffle\0", bool).map_err(From::from)
     }
 
     #[dbus_interface(property)]
     fn set_shuffle(self, value: bool) {
-        _ = set_bool!(self.ctx(), "shuffle\0", value);
+        _ = set!(self, "shuffle\0", bool, value);
     }
 
     /// Metadata property
@@ -196,9 +307,10 @@ impl PlayerImpl {
                 zvariant::Value::from($value).to_owned()
             };
         }
+
         let thumb = smol::spawn(async move {
-            let path = get!(self.ctx(), "path\0").unwrap_or_default();
-            if path == get!(self.ctx(), "stream-open-filename\0").unwrap_or_default() {
+            let path = get!(self, "path\0").unwrap_or_default();
+            if path == get!(self, "stream-open-filename\0").unwrap_or_default() {
                 Command::new("ffmpegthumbnailer")
                     .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
                     .arg(&path)
@@ -240,11 +352,11 @@ impl PlayerImpl {
 
         let mut m = HashMap::new();
 
-        if let Some(s) = get!(self.ctx(), "media-title\0") {
+        if let Some(s) = get!(self, "media-title\0") {
             m.insert("xesam:title", value!(s));
         }
 
-        if let Some(data) = get!(self.ctx(), "metadata\0") {
+        if let Some(data) = get!(self, "metadata\0") {
             let data: HashMap<&str, String> =
                 serde_json::from_str(&data).map_err(|err| Error::Failed(err.to_string()))?;
             for (key, value) in data {
@@ -285,12 +397,12 @@ impl PlayerImpl {
 
         m.insert(
             "mpris:length",
-            ((get_float!(self.ctx(), "duration\0")? * 1E6) as i64).into(),
+            ((get!(self, "duration\0", f64)? * 1E6) as i64).into(),
         );
 
-        let path = get!(self.ctx(), "path\0").unwrap_or_default();
+        let path = get!(self, "path\0").unwrap_or_default();
         if let Some(url) = Url::parse(&path).ok().or_else(|| {
-            get!(self.ctx(), "working-directory\0")
+            get!(self, "working-directory\0")
                 .and_then(|dir| Url::from_file_path(Path::new(&dir).join(&path)).ok())
         }) {
             m.insert("mpris:url", value!(url.as_str()));
@@ -306,24 +418,24 @@ impl PlayerImpl {
     /// Volume property
     #[dbus_interface(property)]
     fn volume(self) -> Result<f64> {
-        Ok(get_float!(self.ctx(), "volume\0")? / 100.0)
+        Ok(get!(self, "volume\0", f64)? / 100.0)
     }
 
     #[dbus_interface(property)]
     fn set_volume(self, value: f64) {
-        _ = set_float!(self.ctx(), "volume\0", value * 100.0);
+        _ = set!(self, "volume\0", f64, value * 100.0);
     }
 
     /// Position property
     #[dbus_interface(property)]
     fn position(self) -> Result<i64> {
-        Ok((get_float!(self.ctx(), "playback-time\0")? * 1E6) as i64)
+        Ok((get!(self, "playback-time\0", f64)? * 1E6) as i64)
     }
 
     // SetPosition method
     fn set_position(self, track_id: zvariant::ObjectPath<'_>, position: i64) {
         _ = track_id;
-        _ = set_float!(self.ctx(), "playback-time\0", (position as f64) / 1E6);
+        _ = set!(self, "playback-time\0", f64, (position as f64) / 1E6);
     }
 }
 

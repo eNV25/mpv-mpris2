@@ -3,11 +3,9 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+include!(concat!(env!("OUT_DIR"), "/ffi.rs"));
+
 use thiserror::Error;
-
-include!(concat!(env!("OUT_DIR"), "/mpv.rs"));
-
-pub const MPV_MPRIS: u64 = u64::from_ne_bytes(*b"mpvmpris");
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]

@@ -6,11 +6,11 @@ use std::{
     iter, process,
 };
 
-use crate::mpv::*;
+use crate::ffi::*;
 
-mod mp;
+mod ffi;
+mod macros;
 mod mpris;
-mod mpv;
 
 #[no_mangle]
 pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
@@ -22,21 +22,21 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     let connection = smol::block_on(async {
         let connection = zbus::ConnectionBuilder::session()?
             .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
-            .serve_at("/org/mpris/MediaPlayer2", mpris::RootImpl::from(ctx))?
-            .serve_at("/org/mpris/MediaPlayer2", mpris::PlayerImpl::from(ctx))?
+            .serve_at("/org/mpris/MediaPlayer2", mpris::Root::from(ctx))?
+            .serve_at("/org/mpris/MediaPlayer2", mpris::Player::from(ctx))?
             .build()
             .await?;
         zbus::Result::Ok(connection)
     })
     .expect("dbus session connection and server setup");
 
-    let root: zbus::InterfaceRef<mpris::RootImpl> = smol::block_on(
+    let root: zbus::InterfaceRef<mpris::Root> = smol::block_on(
         connection
             .object_server()
             .interface("/org/mpris/MediaPlayer2"),
     )
     .expect("MediaPlayer2 interface reference");
-    let player: zbus::InterfaceRef<mpris::PlayerImpl> = smol::block_on(
+    let player: zbus::InterfaceRef<mpris::Player> = smol::block_on(
         connection
             .object_server()
             .interface("/org/mpris/MediaPlayer2"),
@@ -61,7 +61,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
         "fullscreen\0",
     );
 
-    observe_format!(ctx, MPV_MPRIS, "keep-open\0", MPV_FORMAT_STRING);
+    observe!(ctx, "keep-open\0", MPV_FORMAT_STRING);
 
     const EOF_REACHED: u64 = u64::from_ne_bytes(*b"mpvEOFed");
 
@@ -95,15 +95,15 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
             .filter_map(|ev| match ev {
                 mpv_event {
                     event_id: MPV_EVENT_PROPERTY_CHANGE,
-                    reply_userdata: MPV_MPRIS | EOF_REACHED,
                     error: 0..,
                     data,
+                    ..
                 } => match unsafe { *data.cast() } {
                     mpv_event_property {
                         format: MPV_FORMAT_NONE,
                         name,
                         ..
-                    } => unsafe { CStr::from_ptr(name) }.to_str().ok(), // we don't need to copy this string, we only need it for hash not value
+                    } => unsafe { CStr::from_ptr(name) }.to_str().ok(), // the lifetime is wrong, but that's OK because we use hash not value
                     mpv_event_property {
                         format: MPV_FORMAT_STRING,
                         name,
@@ -115,11 +115,10 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
                         (Ok("keep-open"), Ok(value)) => {
                             if value == "no" {
                                 unobserve!(ctx, EOF_REACHED);
-                                None
                             } else {
-                                observe_format!(ctx, EOF_REACHED, "eof-reached\0", MPV_FORMAT_NONE);
-                                None
+                                observe!(ctx, EOF_REACHED, "eof-reached\0", MPV_FORMAT_NONE);
                             }
+                            Some("keep-open")
                         }
                         _ => None,
                     },
@@ -134,8 +133,8 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
         }
 
         if seeked {
-            if let Ok(position) = get_float!(ctx, "playback-time\0") {
-                _ = smol::block_on(mpris::PlayerImpl::seeked(
+            if let Ok(position) = get!(ctx, "playback-time\0", f64) {
+                _ = smol::block_on(mpris::Player::seeked(
                     player.signal_context(),
                     (position * 1E6) as i64,
                 ));
@@ -165,6 +164,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
                 player,
                 playback_status_changed,
                 "idle-active",
+                "keep-open",
                 "eof-reached",
                 "pause",
             ),
