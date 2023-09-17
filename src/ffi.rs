@@ -5,6 +5,7 @@
 
 include!(concat!(env!("OUT_DIR"), "/ffi.rs"));
 
+use mpris_server::zbus;
 use thiserror::Error;
 
 #[repr(transparent)]
@@ -28,6 +29,13 @@ impl From<Error> for zbus::fdo::Error {
     #[inline]
     fn from(value: Error) -> Self {
         Self::Failed(value.to_string())
+    }
+}
+
+impl From<Error> for zbus::Error {
+    #[inline]
+    fn from(value: Error) -> Self {
+        Self::Failure(value.to_string())
     }
 }
 
@@ -70,108 +78,11 @@ impl<'a> Drop for Str<'a> {
     }
 }
 
-impl<'a> Str<'a> {
-    #[inline]
-    pub fn into_str(self) -> &'a str {
-        self.0
-    }
-}
-
 impl<'a> std::ops::Deref for Str<'a> {
     type Target = str;
     #[inline]
     fn deref(&self) -> &Self::Target {
         self.0
-    }
-}
-
-impl<'a> From<Str<'a>> for &'a str {
-    #[inline]
-    fn from(value: Str<'a>) -> Self {
-        value.0
-    }
-}
-
-impl<'a> From<Str<'a>> for String {
-    #[inline]
-    fn from(value: Str<'a>) -> Self {
-        Self::from(value.0)
-    }
-}
-
-impl<'a> AsRef<std::ffi::OsStr> for Str<'a> {
-    #[inline]
-    fn as_ref(&self) -> &std::ffi::OsStr {
-        self.0.as_ref()
-    }
-}
-
-impl<'a> AsRef<std::path::Path> for Str<'a> {
-    #[inline]
-    fn as_ref(&self) -> &std::path::Path {
-        self.0.as_ref()
-    }
-}
-
-impl<'a> AsRef<[u8]> for Str<'a> {
-    #[inline]
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-
-impl<'a> AsRef<str> for Str<'a> {
-    #[inline]
-    fn as_ref(&self) -> &str {
-        self.0
-    }
-}
-
-impl<'a> std::borrow::Borrow<str> for Str<'a> {
-    fn borrow(&self) -> &str {
-        self.0
-    }
-}
-
-impl<'a> PartialEq<str> for Str<'a> {
-    #[inline]
-    fn eq(&self, other: &str) -> bool {
-        self.0.eq(other)
-    }
-}
-
-impl<'a> PartialOrd<str> for Str<'a> {
-    #[inline]
-    fn partial_cmp(&self, other: &str) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(other)
-    }
-}
-
-impl<'a> PartialEq<&'a str> for Str<'a> {
-    #[inline]
-    fn eq(&self, other: &&'a str) -> bool {
-        self.0.eq(*other)
-    }
-}
-
-impl<'a> PartialOrd<&'a str> for Str<'a> {
-    #[inline]
-    fn partial_cmp(&self, other: &&'a str) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(*other)
-    }
-}
-
-impl<'a> PartialEq<String> for Str<'a> {
-    #[inline]
-    fn eq(&self, other: &String) -> bool {
-        self.0.eq(other)
-    }
-}
-
-impl<'a> PartialOrd<String> for Str<'a> {
-    #[inline]
-    fn partial_cmp(&self, other: &String) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(other)
     }
 }
 

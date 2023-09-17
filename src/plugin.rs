@@ -1,47 +1,38 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)] // mpv_wait_event
 
 use std::{
-    collections::HashSet,
     ffi::{c_int, CStr},
     iter, process,
 };
+
+use mpris_server::{enumflags2::BitFlags, Property, Server, Signal, Time};
 
 use crate::ffi::*;
 
 mod ffi;
 mod macros;
-mod mpris;
+mod mpris2;
 
 #[no_mangle]
 pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     if ctx.is_null() {
         return 1;
     }
+    smol::block_on(plugin(ctx))
+}
+
+async fn plugin(ctx: *mut mpv_handle) -> c_int {
+    let script = unsafe { CStr::from_ptr(mpv_client_name(ctx)) }
+        .to_str()
+        .unwrap_or_default();
+    let elog = |err| eprintln!("[{script}] {err}");
 
     let pid = process::id();
-    let connection = smol::block_on(async {
-        let connection = zbus::ConnectionBuilder::session()?
-            .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
-            .serve_at("/org/mpris/MediaPlayer2", mpris::Root::from(ctx))?
-            .serve_at("/org/mpris/MediaPlayer2", mpris::Player::from(ctx))?
-            .build()
-            .await?;
-        zbus::Result::Ok(connection)
-    })
-    .expect("dbus session connection and server setup");
-
-    let root: zbus::InterfaceRef<mpris::Root> = smol::block_on(
-        connection
-            .object_server()
-            .interface("/org/mpris/MediaPlayer2"),
+    let server = Server::new(
+        &format!("mpv.instance{pid}"),
+        mpris2::Player(crate::Handle(ctx)),
     )
-    .expect("MediaPlayer2 interface reference");
-    let player: zbus::InterfaceRef<mpris::Player> = smol::block_on(
-        connection
-            .object_server()
-            .interface("/org/mpris/MediaPlayer2"),
-    )
-    .expect("MediaPlayer2.Player interface reference");
+    .expect("MPRIS server");
 
     // These properties and those handled in the main loop
     // must be kept in sync with the implementations in the
@@ -49,19 +40,21 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     // It's a bit of a pain in the ass but there's no other way.
     observe!(
         ctx,
-        "seekable\0",
-        "idle-active\0",
-        "pause\0",
-        "loop-file\0",
-        "loop-playlist\0",
-        "speed\0",
-        "shuffle\0",
-        "metadata\0",
-        "volume\0",
-        "fullscreen\0",
+        "seekable",
+        "idle-active",
+        "pause",
+        "loop-file",
+        "loop-playlist",
+        "speed",
+        "shuffle",
+        "metadata",
+        "media-title",
+        "duration",
+        "volume",
+        "fullscreen",
     );
 
-    observe!(ctx, "keep-open\0", MPV_FORMAT_STRING);
+    observe!(ctx, "keep-open", MPV_FORMAT_STRING);
 
     const EOF_REACHED: u64 = u64::from_ne_bytes(*b"mpvEOFed");
 
@@ -70,9 +63,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
         let mut shutdown = false;
         let mut seeked = false;
 
-        // We don't need to mpv_free() these strings or anything returned by mpv_wait_event(),
-        // the API does it automatically.
-        let changed: HashSet<&str> = iter::once(-1.0)
+        let changed: BitFlags<Property> = iter::once(-1.0)
             .chain(iter::repeat(0.0))
             .map(|timeout| unsafe { *mpv_wait_event(ctx, timeout) })
             .take_while(|ev| match ev.event_id {
@@ -103,7 +94,10 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
                         format: MPV_FORMAT_NONE,
                         name,
                         ..
-                    } => unsafe { CStr::from_ptr(name) }.to_str().ok(), // the lifetime is wrong, but that's OK because we use hash not value
+                    } => match unsafe { CStr::from_ptr(name) }.to_str() {
+                        Ok(name) => property(name),
+                        _ => None,
+                    },
                     mpv_event_property {
                         format: MPV_FORMAT_STRING,
                         name,
@@ -116,9 +110,9 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
                             if value == "no" {
                                 unobserve!(ctx, EOF_REACHED);
                             } else {
-                                observe!(ctx, EOF_REACHED, "eof-reached\0", MPV_FORMAT_NONE);
+                                observe!(ctx, EOF_REACHED, "eof-reached", MPV_FORMAT_NONE);
                             }
-                            Some("keep-open")
+                            property("keep-open")
                         }
                         _ => None,
                     },
@@ -128,58 +122,39 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
             })
             .collect();
 
-        if shutdown {
-            return 0;
-        }
+        server
+            .properties_changed(changed)
+            .await
+            .unwrap_or_else(elog);
 
         if seeked {
-            if let Ok(position) = get!(ctx, "playback-time\0", f64) {
-                _ = smol::block_on(mpris::Player::seeked(
-                    player.signal_context(),
-                    (position * 1E6) as i64,
-                ));
+            if let Ok(position) = get!(ctx, "playback-time", f64) {
+                server
+                    .emit(Signal::Seeked {
+                        position: Time::from_micros((position * 1E6) as i64),
+                    })
+                    .await
+                    .unwrap_or_else(elog);
             }
         }
 
-        macro_rules! signal_changed {
-            ($iface:expr, $method:ident) => {
-                smol::block_on(async {
-                    _ = $iface.get().await.$method($iface.signal_context()).await;
-                })
-            };
+        if shutdown {
+            return 0;
         }
-
-        macro_rules! forward_properties {
-            ($changed:expr, $(($iface:expr, $method:ident, $prop0:expr $(, $propn:expr)* $(,)?),)+) => {
-                $(if $changed.contains($prop0) $(|| $changed.contains($propn) )*{
-                    signal_changed!($iface, $method);
-                })+
-            };
-        }
-
-        forward_properties!(
-            changed,
-            (player, can_seek_changed, "seekable"),
-            (
-                player,
-                playback_status_changed,
-                "idle-active",
-                "keep-open",
-                "eof-reached",
-                "pause",
-            ),
-            (player, loop_status_changed, "loop-file", "loop-playlist"),
-            (player, rate_changed, "speed"),
-            (player, shuffle_changed, "shuffle"),
-            (
-                player,
-                metadata_changed,
-                "metadata",
-                "media-title",
-                "duration",
-            ),
-            (player, volume_changed, "volume"),
-            (root, fullscreen_changed, "fullscreen"),
-        );
     }
+}
+
+const fn property(prop: &str) -> Option<Property> {
+    use Property::*;
+    Some(match prop.as_bytes() {
+        b"seekable" => CanSeek,
+        b"idle-active" | b"keep-open" | b"eof-reached" | b"pause" => PlaybackStatus,
+        b"loop-file" | b"loop-playlist" => LoopStatus,
+        b"speed" => Rate,
+        b"shuffle" => Shuffle,
+        b"metadata" | b"media-title" | b"duration" => Metadata,
+        b"volume" => Volume,
+        b"fullscreen" => Fullscreen,
+        _ => return None,
+    })
 }
