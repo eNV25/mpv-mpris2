@@ -1,3 +1,6 @@
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_precision_loss)]
+
 use std::{
     collections::HashMap,
     env,
@@ -277,10 +280,7 @@ impl PlayerInterface for Player {
 
         let mut m = Metadata::new();
 
-        m.insert(
-            "mpris:length",
-            (get!(self, "duration", f64)? * 1E6) as i64,
-        );
+        m.insert("mpris:length", (get!(self, "duration", f64)? * 1E6) as i64);
 
         if let Some(s) = get!(self, "media-title") {
             m.insert("xesam:title", s);

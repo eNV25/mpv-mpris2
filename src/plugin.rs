@@ -1,4 +1,4 @@
-#![allow(clippy::not_unsafe_ptr_arg_deref)] // mpv_wait_event
+#![allow(clippy::cast_possible_truncation)]
 
 use std::{
     ffi::{c_int, CStr},
@@ -56,105 +56,71 @@ async fn plugin(ctx: *mut mpv_handle) -> c_int {
 
     observe!(ctx, "keep-open", MPV_FORMAT_STRING);
 
-    const EOF_REACHED: u64 = u64::from_ne_bytes(*b"mpvEOFed");
-
     let mut seeking = false;
     loop {
-        let mut shutdown = false;
-        let mut seeked = false;
+        let mut changed = BitFlags::default();
 
-        let changed: BitFlags<Property> = iter::once(-1.0)
+        for ev in iter::once(-1.0)
             .chain(iter::repeat(0.0))
             .map(|timeout| unsafe { *mpv_wait_event(ctx, timeout) })
-            .take_while(|ev| match ev.event_id {
-                MPV_EVENT_NONE => false,
-                MPV_EVENT_SHUTDOWN => {
-                    shutdown = true;
-                    false
-                }
-                MPV_EVENT_SEEK => {
-                    seeking = true;
-                    true
-                }
+        {
+            match ev.event_id {
+                MPV_EVENT_NONE => break,
+                MPV_EVENT_SHUTDOWN => return 0,
+                MPV_EVENT_SEEK => seeking = true,
                 MPV_EVENT_PLAYBACK_RESTART if seeking => {
                     seeking = false;
-                    seeked = true;
-                    true
+                    if let Ok(position) = get!(ctx, "playback-time", f64) {
+                        server
+                            .emit(Signal::Seeked {
+                                position: Time::from_micros((position * 1E6) as i64),
+                            })
+                            .await
+                            .unwrap_or_else(elog);
+                    }
                 }
-                _ => true,
-            })
-            .filter_map(|ev| match ev {
-                mpv_event {
-                    event_id: MPV_EVENT_PROPERTY_CHANGE,
-                    error: 0..,
-                    data,
-                    ..
-                } => match unsafe { *data.cast() } {
-                    mpv_event_property {
-                        format: MPV_FORMAT_NONE,
-                        name,
-                        ..
-                    } => match unsafe { CStr::from_ptr(name) }.to_str() {
-                        Ok(name) => property(name),
-                        _ => None,
-                    },
-                    mpv_event_property {
-                        format: MPV_FORMAT_STRING,
-                        name,
-                        data,
-                    } => match (
-                        unsafe { CStr::from_ptr(name) }.to_str(),
-                        unsafe { CStr::from_ptr(*data.cast()) }.to_str(),
-                    ) {
-                        (Ok("keep-open"), Ok(value)) => {
-                            if value == "no" {
-                                unobserve!(ctx, EOF_REACHED);
-                            } else {
-                                observe!(ctx, EOF_REACHED, "eof-reached", MPV_FORMAT_NONE);
-                            }
-                            property("keep-open")
+                MPV_EVENT_PROPERTY_CHANGE => {
+                    let prop: mpv_event_property = unsafe { *ev.data.cast() };
+                    let name = unsafe { CStr::from_ptr(prop.name) }
+                        .to_str()
+                        .unwrap_or_default();
+                    if let Some(prop) = property(name) {
+                        changed |= prop;
+                    }
+                    if prop.format == MPV_FORMAT_STRING && name == "keep-open" {
+                        const EOF_REACHED: u64 = u64::from_ne_bytes(*b"mpvEOFed");
+                        let value = unsafe { CStr::from_ptr(*prop.data.cast()) }
+                            .to_str()
+                            .unwrap_or_default();
+                        if value == "no" {
+                            unobserve!(ctx, EOF_REACHED);
+                        } else {
+                            observe!(ctx, EOF_REACHED, "eof-reached", MPV_FORMAT_NONE);
                         }
-                        _ => None,
-                    },
-                    _ => None,
-                },
-                _ => None,
-            })
-            .collect();
+                    }
+                }
+                _ => {}
+            }
+        }
 
         server
             .properties_changed(changed)
             .await
             .unwrap_or_else(elog);
-
-        if seeked {
-            if let Ok(position) = get!(ctx, "playback-time", f64) {
-                server
-                    .emit(Signal::Seeked {
-                        position: Time::from_micros((position * 1E6) as i64),
-                    })
-                    .await
-                    .unwrap_or_else(elog);
-            }
-        }
-
-        if shutdown {
-            return 0;
-        }
     }
 }
 
-const fn property(prop: &str) -> Option<Property> {
+fn property(prop: &str) -> Option<Property> {
     use Property::*;
-    Some(match prop.as_bytes() {
-        b"seekable" => CanSeek,
-        b"idle-active" | b"keep-open" | b"eof-reached" | b"pause" => PlaybackStatus,
-        b"loop-file" | b"loop-playlist" => LoopStatus,
-        b"speed" => Rate,
-        b"shuffle" => Shuffle,
-        b"metadata" | b"media-title" | b"duration" => Metadata,
-        b"volume" => Volume,
-        b"fullscreen" => Fullscreen,
+    Some(match prop {
+        "seekable" => CanSeek,
+        "idle-active" | "keep-open" | "eof-reached" | "pause" => PlaybackStatus,
+        "loop-file" | "loop-playlist" => LoopStatus,
+        "speed" => Rate,
+        "shuffle" => Shuffle,
+        "metadata" | "media-title" | "duration" => Metadata,
+        "volume" => Volume,
+        "fullscreen" => Fullscreen,
         _ => return None,
     })
 }
