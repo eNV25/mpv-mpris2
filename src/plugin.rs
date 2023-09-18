@@ -260,7 +260,7 @@ async fn signal_changed(
             let root = fdo::Properties::properties_changed(
                 root_ctxt,
                 mpris2::Root::name(),
-                dbg!(&root_changed.iter().map(|(&k, v)| (k, v)).collect()),
+                &root_changed.iter().map(|(&k, v)| (k, v)).collect(),
                 &[],
             )
             .await;
@@ -273,7 +273,7 @@ async fn signal_changed(
             let player = fdo::Properties::properties_changed(
                 player_ctxt,
                 mpris2::Player::name(),
-                dbg!(&player_changed.iter().map(|(&k, v)| (k, v)).collect()),
+                &player_changed.iter().map(|(&k, v)| (k, v)).collect(),
                 &[],
             )
             .await;
