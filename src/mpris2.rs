@@ -1,6 +1,3 @@
-#![allow(clippy::cast_possible_truncation)]
-#![allow(clippy::cast_precision_loss)]
-
 use std::{
     collections::HashMap,
     env,
@@ -39,6 +36,15 @@ impl From<&Player> for *mut crate::mpv_handle {
     fn from(value: &Player) -> Self {
         value.0 .0
     }
+}
+
+pub fn time_as_secs(time: Time) -> f64 {
+    Duration::from_micros(time.as_micros().try_into().unwrap_or(u64::MIN)).as_secs_f64()
+}
+
+pub fn time_from_secs(secs: f64) -> Time {
+    let secs = Duration::try_from_secs_f64(secs).unwrap_or(Duration::ZERO);
+    Time::from_micros(secs.as_micros().try_into().unwrap_or(i64::MAX))
 }
 
 #[async_trait]
@@ -151,7 +157,7 @@ impl PlayerInterface for Player {
     }
 
     async fn seek(&self, offset: Time) -> fdo::Result<()> {
-        let offset = format!("{}\0", (offset.as_micros() as f64) / 1E6);
+        let offset = format!("{}\0", time_as_secs(offset));
         Ok(command!(self, "seek", offset.as_str())?)
     }
 
@@ -280,7 +286,7 @@ impl PlayerInterface for Player {
 
         let mut m = Metadata::new();
 
-        m.insert("mpris:length", (get!(self, "duration", f64)? * 1E6) as i64);
+        m.insert("mpris:length", time_from_secs(get!(self, "duration", f64)?));
 
         if let Some(s) = get!(self, "media-title") {
             m.insert("xesam:title", s);
@@ -347,17 +353,10 @@ impl PlayerInterface for Player {
     }
 
     async fn position(&self) -> fdo::Result<Time> {
-        Ok(Time::from_micros(
-            (get!(self, "playback-time", f64)? * 1E6) as i64,
-        ))
+        Ok(time_from_secs(get!(self, "playback-time", f64)?))
     }
 
     async fn set_position(&self, _: TrackId, position: Time) -> fdo::Result<()> {
-        Ok(set!(
-            self,
-            "playback-time",
-            f64,
-            (position.as_micros() as f64) / 1E6
-        )?)
+        Ok(set!(self, "playback-time", f64, time_as_secs(position))?)
     }
 }

@@ -1,11 +1,9 @@
-#![allow(clippy::cast_possible_truncation)]
-
 use std::{
     ffi::{c_int, CStr},
     iter, process,
 };
 
-use mpris_server::{enumflags2::BitFlags, Property, Server, Signal, Time};
+use mpris_server::{enumflags2::BitFlags, Property, Server, Signal};
 
 use crate::ffi::*;
 
@@ -73,7 +71,7 @@ async fn plugin(ctx: *mut mpv_handle) -> c_int {
                     if let Ok(position) = get!(ctx, "playback-time", f64) {
                         server
                             .emit(Signal::Seeked {
-                                position: Time::from_micros((position * 1E6) as i64),
+                                position: mpris2::time_from_secs(position),
                             })
                             .await
                             .unwrap_or_else(elog);

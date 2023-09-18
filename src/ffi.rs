@@ -51,7 +51,7 @@ impl std::fmt::Debug for Error {
 impl std::fmt::Display for Error {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str = unsafe { std::ffi::CStr::from_ptr(mpv_error_string(self.0 as _)) }
+        let str = unsafe { std::ffi::CStr::from_ptr(mpv_error_string(self.0)) }
             .to_str()
             .unwrap_or_default();
         f.write_str(str)
