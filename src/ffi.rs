@@ -5,7 +5,6 @@
 
 include!(concat!(env!("OUT_DIR"), "/ffi.rs"));
 
-use mpris_server::zbus;
 use thiserror::Error;
 
 #[repr(transparent)]
@@ -13,6 +12,13 @@ use thiserror::Error;
 pub struct Handle(pub *mut mpv_handle);
 unsafe impl Send for Handle {}
 unsafe impl Sync for Handle {}
+
+impl From<Handle> for *mut mpv_handle {
+    #[inline]
+    fn from(value: Handle) -> Self {
+        value.0
+    }
+}
 
 #[repr(transparent)]
 #[derive(Error)]

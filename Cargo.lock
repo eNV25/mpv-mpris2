@@ -12,6 +12,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.75"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4668cab20f66d8d020e1fbc0ebe47217433c1b6c8f2040faf858554e394ace6"
+
+[[package]]
 name = "async-broadcast"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -406,15 +412,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "futures-channel"
-version = "0.3.28"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "955518d47e09b25bbebc7a18df10b81f0c766eaf4c4f1cccef2fca5f2a4fb5f2"
-dependencies = [
- "futures-core",
-]
-
-[[package]]
 name = "futures-core"
 version = "0.3.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -637,32 +634,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
-name = "mpris-server"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dfbea1ccfb4eca8c200efb3d4259e5302ad41f5f68cc4201148c92498a4b76f"
-dependencies = [
- "async-lock",
- "async-trait",
- "enumflags2",
- "futures-channel",
- "futures-util",
- "serde",
- "zbus",
-]
-
-[[package]]
 name = "mpv-mpris2"
 version = "0.0.1-alpha9"
 dependencies = [
+ "anyhow",
  "bindgen",
  "data-encoding",
- "mpris-server",
  "pkg-config",
  "serde_json",
  "smol",
  "thiserror",
  "url",
+ "zbus",
 ]
 
 [[package]]
