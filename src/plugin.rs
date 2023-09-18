@@ -64,23 +64,25 @@ async fn plugin(ctx: *mut mpv_handle, name: &str) -> anyhow::Result<()> {
     // must be kept in sync with the implementations in the
     // dbus interface implementations.
     // It's a bit of a pain in the ass but there's no other way.
+    observe!(ctx, "media-title", "metadata", "duration");
     observe!(
         ctx,
+        MPV_FORMAT_FLAG,
+        "fullscreen",
         "seekable",
         "idle-active",
+        // "eof-reached" is set in the main-loop
         "pause",
+        "shuffle",
+    );
+    observe!(
+        ctx,
+        MPV_FORMAT_STRING,
+        "keep-open",
         "loop-file",
         "loop-playlist",
-        "speed",
-        "shuffle",
-        "metadata",
-        "media-title",
-        "duration",
-        "volume",
-        "fullscreen",
     );
-
-    observe!(ctx, "keep-open", MPV_FORMAT_STRING);
+    observe!(ctx, MPV_FORMAT_DOUBLE, "speed", "volume");
 
     let elog = |err| eprintln!("[{name}] {err:?}");
 
@@ -138,14 +140,8 @@ async fn plugin(ctx: *mut mpv_handle, name: &str) -> anyhow::Result<()> {
                         .to_str()
                         .unwrap_or_default();
                     match (name, prop.format) {
-                        ("fullscreen", MPV_FORMAT_FLAG) => {
-                            root_changed.insert("Fullscreen", data!(prop, bool).into());
-                        }
-                        ("seekable", MPV_FORMAT_FLAG) => {
-                            player_changed.insert("CanSeek", data!(prop, bool).into());
-                        }
-                        ("idle-active", MPV_FORMAT_FLAG) => {
-                            state.idle_active.replace(data!(prop, bool));
+                        ("media-title" | "metadata" | "duration", _) => {
+                            state.metadata = true;
                         }
                         ("keep-open", MPV_FORMAT_STRING) => {
                             const EOF_REACHED: u64 = u64::from_ne_bytes(*b"mpvEOFed");
@@ -155,15 +151,9 @@ async fn plugin(ctx: *mut mpv_handle, name: &str) -> anyhow::Result<()> {
                             if value == "no" {
                                 unobserve!(ctx, EOF_REACHED);
                             } else {
-                                observe!(ctx, EOF_REACHED, "eof-reached", MPV_FORMAT_NONE);
+                                observe!(ctx, EOF_REACHED, "eof-reached", MPV_FORMAT_FLAG);
                             }
                             state.keep_open = true;
-                        }
-                        ("eof-reached", MPV_FORMAT_FLAG) => {
-                            state.eof_reached.replace(data!(prop, bool));
-                        }
-                        ("pause", MPV_FORMAT_FLAG) => {
-                            state.pause.replace(data!(prop, bool));
                         }
                         ("loop-file", MPV_FORMAT_STRING) => {
                             state.loop_file.replace(data!(prop, String));
@@ -171,14 +161,26 @@ async fn plugin(ctx: *mut mpv_handle, name: &str) -> anyhow::Result<()> {
                         ("loop-playlist", MPV_FORMAT_STRING) => {
                             state.loop_playlist.replace(data!(prop, String));
                         }
-                        ("speed", MPV_FORMAT_DOUBLE) => {
-                            player_changed.insert("Rate", data!(prop, f64).into());
+                        ("fullscreen", MPV_FORMAT_FLAG) => {
+                            root_changed.insert("Fullscreen", data!(prop, bool).into());
+                        }
+                        ("seekable", MPV_FORMAT_FLAG) => {
+                            player_changed.insert("CanSeek", data!(prop, bool).into());
+                        }
+                        ("idle-active", MPV_FORMAT_FLAG) => {
+                            state.idle_active.replace(data!(prop, bool));
+                        }
+                        ("eof-reached", MPV_FORMAT_FLAG) => {
+                            state.eof_reached.replace(data!(prop, bool));
+                        }
+                        ("pause", MPV_FORMAT_FLAG) => {
+                            state.pause.replace(data!(prop, bool));
                         }
                         ("shuffle", MPV_FORMAT_FLAG) => {
                             player_changed.insert("Shuffle", data!(prop, bool).into());
                         }
-                        ("media-title" | "metadata" | "duration", _) => {
-                            state.metadata = true;
+                        ("speed", MPV_FORMAT_DOUBLE) => {
+                            player_changed.insert("Rate", data!(prop, f64).into());
                         }
                         ("volume", MPV_FORMAT_DOUBLE) => {
                             player_changed.insert("Volume", (data!(prop, f64) / 100.0).into());
@@ -251,21 +253,34 @@ async fn signal_changed(
             player_changed.insert("Metadata", value.into());
         }
     }
-    let root = fdo::Properties::properties_changed(
-        root_ctxt,
-        mpris2::Root::name(),
-        &root_changed.iter().map(|(&k, v)| (k, v)).collect(),
-        &[],
-    )
-    .await;
-    root_changed.clear();
-    let player = fdo::Properties::properties_changed(
-        player_ctxt,
-        mpris2::Player::name(),
-        &player_changed.iter().map(|(&k, v)| (k, v)).collect(),
-        &[],
-    )
-    .await;
-    player_changed.clear();
-    [root, player].into_iter()
+    [
+        if root_changed.is_empty() {
+            None
+        } else {
+            let root = fdo::Properties::properties_changed(
+                root_ctxt,
+                mpris2::Root::name(),
+                dbg!(&root_changed.iter().map(|(&k, v)| (k, v)).collect()),
+                &[],
+            )
+            .await;
+            root_changed.clear();
+            Some(root)
+        },
+        if player_changed.is_empty() {
+            None
+        } else {
+            let player = fdo::Properties::properties_changed(
+                player_ctxt,
+                mpris2::Player::name(),
+                dbg!(&player_changed.iter().map(|(&k, v)| (k, v)).collect()),
+                &[],
+            )
+            .await;
+            player_changed.clear();
+            Some(player)
+        },
+    ]
+    .into_iter()
+    .flatten()
 }

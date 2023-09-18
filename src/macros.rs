@@ -108,8 +108,8 @@ macro_rules! observe {
     ($ctx:ident, $($prop:literal),+ $(,)?) => {
         $(observe!($ctx, 0, $prop, MPV_FORMAT_NONE));+
     };
-    ($ctx:ident, $prop:literal, $format:ident) => {
-        observe!($ctx, 0, $prop, $format)
+    ($ctx:ident, $format:ident, $($prop:literal),+ $(,)?) => {
+        $(observe!($ctx, 0, $prop, $format));+
     };
     ($ctx:ident, $userdata:expr, $prop:literal, $format:ident) => {{
         let userdata = $userdata;
