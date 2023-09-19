@@ -65,43 +65,111 @@ impl std::fmt::Display for Error {
 }
 
 #[repr(transparent)]
-#[derive(Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Str<'a>(pub &'a str);
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub struct Str(str);
 
-impl<'a> TryFrom<&'a std::ffi::c_char> for Str<'a> {
+impl Drop for Str {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe { mpv_free(self.as_ptr().cast_mut().cast()) }
+    }
+}
+
+impl<'a> TryFrom<&'a std::ffi::c_char> for &'a Str {
     type Error = std::str::Utf8Error;
     fn try_from(value: &'a std::ffi::c_char) -> Result<Self, Self::Error> {
         // SAFETY: value cannot be null
         unsafe { std::ffi::CStr::from_ptr(value) }
             .to_str()
-            .map(Self)
+            .map(Str::from_str)
     }
 }
 
-impl<'a> Drop for Str<'a> {
-    fn drop(&mut self) {
-        unsafe { mpv_free(self.0.as_ptr().cast_mut().cast()) }
-    }
-}
-
-impl<'a> std::ops::Deref for Str<'a> {
+impl std::ops::Deref for Str {
     type Target = str;
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.0
+        self.as_str()
     }
 }
 
-impl<'a> std::fmt::Debug for Str<'a> {
+impl Default for &Str {
     #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+    fn default() -> Self {
+        Str::from_str(Default::default())
     }
 }
 
-impl<'a> std::fmt::Display for Str<'a> {
+impl<'a> Str {
+    #[inline]
+    const fn from_str(value: &'a str) -> &'a Self {
+        unsafe { &*(value as *const str as *const Self) }
+    }
+    #[inline]
+    pub const fn as_str(&'a self) -> &'a str {
+        unsafe { &*(self as *const Self as *const str) }
+    }
+}
+
+impl<'a> From<&'a Str> for &'a str {
+    #[inline]
+    fn from(value: &'a Str) -> Self {
+        value.as_str()
+    }
+}
+
+impl From<&Str> for String {
+    #[inline]
+    fn from(value: &Str) -> Self {
+        value.as_str().to_owned()
+    }
+}
+
+impl AsRef<str> for Str {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsRef<std::ffi::OsStr> for Str {
+    #[inline]
+    fn as_ref(&self) -> &std::ffi::OsStr {
+        self.as_str().as_ref()
+    }
+}
+
+impl AsRef<std::path::Path> for Str {
+    #[inline]
+    fn as_ref(&self) -> &std::path::Path {
+        self.as_str().as_ref()
+    }
+}
+
+impl PartialEq<str> for Str {
+    #[inline]
+    fn eq(&self, other: &str) -> bool {
+        self.as_str().eq(other)
+    }
+}
+
+impl PartialOrd<str> for Str {
+    #[inline]
+    fn partial_cmp(&self, other: &str) -> Option<std::cmp::Ordering> {
+        self.as_str().partial_cmp(other)
+    }
+}
+
+impl std::fmt::Debug for &Str {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        self.as_str().fmt(f)
+    }
+}
+
+impl std::fmt::Display for &Str {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_str().fmt(f)
     }
 }

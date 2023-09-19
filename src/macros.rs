@@ -35,8 +35,7 @@ macro_rules! get {
     };
     ($ctx:ident, $prop:literal, MPV_FORMAT_STRING) => {
         unsafe { $crate::mpv_get_property_string($ctx.into(), cstr!($prop)).as_ref() }
-            .and_then(|s| $crate::Str::try_from(s).ok())
-            .map(|s| String::from(&*s))
+            .and_then(|s| <&$crate::Str>::try_from(s).ok())
     };
     ($ctx:ident, $prop:literal, MPV_FORMAT_OSD_STRING) => {
         get!(
@@ -47,8 +46,7 @@ macro_rules! get {
         )
         .ok()
         .and_then(|s| unsafe { s.as_ref() })
-        .and_then(|s| $crate::Str::try_from(s).ok())
-        .map(String::from)
+        .and_then(|s| <&$crate::Str>::try_from(s).ok())
     };
     ($ctx:ident, $prop:literal, MPV_FORMAT_FLAG) => {
         get!($ctx, $prop, MPV_FORMAT_FLAG, std::ffi::c_int::default())
