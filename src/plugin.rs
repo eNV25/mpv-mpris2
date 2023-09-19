@@ -148,12 +148,13 @@ async fn plugin(ctx: *mut mpv_handle, name: &str) -> anyhow::Result<()> {
                             let value = unsafe { CStr::from_ptr(*prop.data.cast()) }
                                 .to_str()
                                 .unwrap_or_default();
-                            if value == "no" {
+                            state.keep_open.replace(if value == "no" {
                                 unobserve!(ctx, EOF_REACHED);
+                                false
                             } else {
                                 observe!(ctx, EOF_REACHED, "eof-reached", MPV_FORMAT_FLAG);
-                            }
-                            state.keep_open = true;
+                                true
+                            });
                         }
                         ("loop-file", MPV_FORMAT_STRING) => {
                             state.loop_file.replace(data!(prop, String));
@@ -208,7 +209,7 @@ async fn plugin(ctx: *mut mpv_handle, name: &str) -> anyhow::Result<()> {
 #[derive(Clone, Default)]
 struct State {
     idle_active: Option<bool>,
-    keep_open: bool,
+    keep_open: Option<bool>,
     eof_reached: Option<bool>,
     pause: Option<bool>,
     loop_file: Option<String>,
@@ -219,7 +220,7 @@ struct State {
 impl State {
     const fn playback_status(&self) -> bool {
         self.idle_active.is_some()
-            | self.keep_open
+            | self.keep_open.is_some()
             | self.eof_reached.is_some()
             | self.pause.is_some()
     }
