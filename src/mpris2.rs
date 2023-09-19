@@ -65,10 +65,14 @@ impl Root {
             .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_owned())
             .split(':')
             .map(Path::new)
-            .filter(|&path| path.is_absolute())
-            .map(|dir| dir.join("applications/mpv.desktop"))
-            .filter_map(|path| File::open(path).ok().map(BufReader::new))
-            .flat_map(BufRead::lines)
+            .filter_map(|dir| {
+                dir.is_absolute()
+                    .then(|| dir.join("applications/mpv.desktop"))
+                    .and_then(|path| File::open(path).ok())
+                    .map(BufReader::new)
+                    .map(BufRead::lines)
+            })
+            .flatten()
             .filter_map(Result::ok)
             .find_map(|line| line.strip_prefix("MimeType=").map(str::to_owned))
             .map_or_else(Vec::new, |v| {
