@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{hash_map, HashMap},
     env,
     fs::File,
     io::{self, BufRead, BufReader},
@@ -288,12 +288,9 @@ pub fn playback_status_from(
     eof_reached: Option<bool>,
     pause: Option<bool>,
 ) -> fdo::Result<&'static str> {
-    if idle_active
-        .ok_or(())
-        .or_else(|_| get!(ctx, "idle-active", bool))?
-        || eof_reached
-            .ok_or(())
-            .or_else(|_| get!(ctx, "eof-reached", bool))?
+    let (idle_active, eof_reached) = (idle_active.ok_or(()), eof_reached.ok_or(()));
+    if idle_active.or_else(|_| get!(ctx, "idle-active", bool))?
+        || eof_reached.or_else(|_| get!(ctx, "eof-reached", bool))?
     {
         Ok("Stopped")
     } else if pause.ok_or(()).or_else(|_| get!(ctx, "pause", bool))? {
@@ -309,17 +306,11 @@ pub fn loop_status_from(
     loop_playlist: Option<String>,
 ) -> fdo::Result<&'static str> {
     let err = || fdo::Error::Failed("cannot get property".into());
-    if loop_file
-        .or_else(|| get!(ctx, "loop-file"))
-        .ok_or_else(err)?
-        != "no"
-    {
+    let loop_file = loop_file.or_else(|| get!(ctx, "loop-file"));
+    let loop_playlist = loop_playlist.or_else(|| get!(ctx, "loop-playlist"));
+    if loop_file.ok_or_else(err)? != "no" {
         Ok("Track")
-    } else if loop_playlist
-        .or_else(|| get!(ctx, "loop-playlist"))
-        .ok_or_else(err)?
-        != "no"
-    {
+    } else if loop_playlist.ok_or_else(err)? != "no" {
         Ok("Playlist")
     } else {
         Ok("None")
@@ -378,10 +369,6 @@ pub async fn metadata(
         time_from_secs(get!(ctx, "duration", f64)?).into(),
     );
 
-    if let Some(s) = get!(ctx, "media-title") {
-        m.insert("xesam:title", s.into());
-    }
-
     if let Some(data) = get!(ctx, "metadata") {
         let data: HashMap<&str, String> =
             serde_json::from_str(&data).map_err(|err| fdo::Error::Failed(err.to_string()))?;
@@ -409,6 +396,12 @@ pub async fn metadata(
                 _ => continue,
             };
             m.insert(key, value);
+        }
+    }
+
+    if let hash_map::Entry::Vacant(v) = m.entry("xesam:title") {
+        if let Some(value) = get!(ctx, "media-title") {
+            v.insert(value.into());
         }
     }
 
