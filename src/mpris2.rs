@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map, HashMap},
+    collections::HashMap,
     env,
     fs::File,
     io::{self, BufRead, BufReader},
@@ -288,9 +288,12 @@ pub fn playback_status_from(
     eof_reached: Option<bool>,
     pause: Option<bool>,
 ) -> fdo::Result<&'static str> {
-    let (idle_active, eof_reached) = (idle_active.ok_or(()), eof_reached.ok_or(()));
-    if idle_active.or_else(|()| get!(ctx, "idle-active", bool))?
-        || eof_reached.or_else(|()| get!(ctx, "eof-reached", bool))?
+    if idle_active
+        .ok_or(())
+        .or_else(|_| get!(ctx, "idle-active", bool))?
+        || eof_reached
+            .ok_or(())
+            .or_else(|_| get!(ctx, "eof-reached", bool))?
     {
         Ok("Stopped")
     } else if pause.ok_or(()).or_else(|_| get!(ctx, "pause", bool))? {
@@ -306,10 +309,16 @@ pub fn loop_status_from(
     loop_playlist: Option<String>,
 ) -> fdo::Result<&'static str> {
     let err = || fdo::Error::Failed("cannot get property".into());
-    if loop_file.ok_or_else(err)? == "no" || get!(ctx, "list-file").ok_or_else(err)? == "no" {
+    if loop_file
+        .or_else(|| get!(ctx, "loop-file"))
+        .ok_or_else(err)?
+        != "no"
+    {
         Ok("Track")
-    } else if loop_playlist.ok_or_else(err)? == "no"
-        || get!(ctx, "list-playlist").ok_or_else(err)? == "no"
+    } else if loop_playlist
+        .or_else(|| get!(ctx, "loop-playlist"))
+        .ok_or_else(err)?
+        != "no"
     {
         Ok("Playlist")
     } else {
@@ -325,7 +334,7 @@ pub async fn metadata(
         if path == get!(ctx, "stream-open-filename").unwrap_or_default() {
             Command::new("ffmpegthumbnailer")
                 .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
-                .arg(path)
+                .arg(&path)
                 .output()
                 .or(async {
                     Timer::after(Duration::from_secs(1)).await;
@@ -340,7 +349,7 @@ pub async fn metadata(
                 for cmd in ["yt-dlp", "yt-dlp_x86", "youtube-dl"] {
                     let thumb = Command::new(cmd)
                         .args(["--no-warnings", "--get-thumbnail"])
-                        .arg(path)
+                        .arg(&path)
                         .output()
                         .or(async {
                             Timer::after(Duration::from_secs(5)).await;
@@ -369,9 +378,13 @@ pub async fn metadata(
         time_from_secs(get!(ctx, "duration", f64)?).into(),
     );
 
+    if let Some(s) = get!(ctx, "media-title") {
+        m.insert("xesam:title", s.into());
+    }
+
     if let Some(data) = get!(ctx, "metadata") {
         let data: HashMap<&str, String> =
-            serde_json::from_str(data).map_err(|err| fdo::Error::Failed(err.to_string()))?;
+            serde_json::from_str(&data).map_err(|err| fdo::Error::Failed(err.to_string()))?;
         for (key, value) in data {
             let integer = || -> i64 {
                 value
@@ -399,12 +412,6 @@ pub async fn metadata(
         }
     }
 
-    if let hash_map::Entry::Vacant(v) = m.entry("xesam:title") {
-        if let Some(s) = get!(ctx, "media-title") {
-            v.insert(String::from(s).into());
-        }
-    }
-
     m.insert(
         "mpris:trackid",
         ObjectPath::try_from("/io/mpv")
@@ -413,9 +420,9 @@ pub async fn metadata(
     );
 
     let path = get!(ctx, "path").unwrap_or_default();
-    if let Some(url) = Url::parse(path).ok().or_else(|| {
+    if let Some(url) = Url::parse(&path).ok().or_else(|| {
         get!(ctx, "working-directory")
-            .and_then(|dir| Url::from_file_path(Path::new(dir).join(path)).ok())
+            .and_then(|dir| Url::from_file_path(Path::new(&dir).join(&path)).ok())
     }) {
         m.insert("mpris:url", String::from(url).into());
     }
