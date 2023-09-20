@@ -105,3 +105,21 @@ impl<'a> std::fmt::Display for Str<'a> {
         self.0.fmt(f)
     }
 }
+
+pub trait AsBytes {
+    fn as_bytes(&self) -> &[u8];
+}
+
+impl AsBytes for &str {
+    #[inline]
+    fn as_bytes(&self) -> &[u8] {
+        (*self).as_bytes()
+    }
+}
+
+impl AsBytes for &std::ffi::CStr {
+    #[inline]
+    fn as_bytes(&self) -> &[u8] {
+        (*self).to_bytes_with_nul()
+    }
+}
