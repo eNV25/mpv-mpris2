@@ -1,3 +1,8 @@
+#![warn(clippy::suspicious)]
+#![warn(clippy::complexity)]
+#![warn(clippy::perf)]
+#![warn(clippy::pedantic)]
+
 use std::{
     collections::HashMap,
     ffi::{c_int, CStr},
