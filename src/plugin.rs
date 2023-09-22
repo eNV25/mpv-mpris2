@@ -9,7 +9,7 @@ use std::{
     iter, process,
 };
 
-use zbus::{fdo, zvariant::Value, Interface, SignalContext};
+use zbus::{fdo, names::InterfaceName, zvariant::Value, Interface, SignalContext};
 
 #[allow(clippy::wildcard_imports)]
 use crate::ffi::*;
@@ -55,12 +55,12 @@ async fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                 .interface::<_, mpris2::Root>(OBJ_PATH)
                 .await?
                 .signal_context()
-                .clone(),
+                .to_owned(),
             object_server
                 .interface::<_, mpris2::Player>(OBJ_PATH)
                 .await?
                 .signal_context()
-                .clone(),
+                .to_owned(),
         ))
     }
     .await?;
@@ -263,30 +263,39 @@ async fn signal_changed(
         if root_changed.is_empty() {
             None
         } else {
-            let root = fdo::Properties::properties_changed(
-                root_ctxt,
-                mpris2::Root::name(),
-                &root_changed.iter().map(|(&k, v)| (k, v)).collect(),
-                &[],
-            )
-            .await;
+            let root = properties_changed(root_ctxt, mpris2::Root::name(), root_changed).await;
             root_changed.clear();
             Some(root)
         },
         if player_changed.is_empty() {
             None
         } else {
-            let player = fdo::Properties::properties_changed(
-                player_ctxt,
-                mpris2::Player::name(),
-                &player_changed.iter().map(|(&k, v)| (k, v)).collect(),
-                &[],
-            )
-            .await;
+            let player =
+                properties_changed(player_ctxt, mpris2::Player::name(), player_changed).await;
             player_changed.clear();
             Some(player)
         },
     ]
     .into_iter()
     .flatten()
+}
+
+async fn properties_changed(
+    ctxt: &SignalContext<'_>,
+    interface_name: InterfaceName<'_>,
+    changed_properties: &HashMap<&str, Value<'_>>,
+) -> zbus::Result<()> {
+    // The following signal sending code is based on fdo::Properties::properties_changed().
+    // That function only accepts a hashmap of strings to references, but we have a hashmap of
+    // strings to values instead.
+    // I don't feel like doing `map.iter().map(|(&k, v)| (k, v)).collect()` all the time.
+    ctxt.connection()
+        .emit_signal(
+            ctxt.destination(),
+            ctxt.path(),
+            fdo::Properties::name(),
+            "PropertiesChanged",
+            &(interface_name, changed_properties, &[] as &[&str]),
+        )
+        .await
 }
