@@ -70,6 +70,7 @@ pub struct Str<'a>(pub &'a str);
 
 impl<'a> TryFrom<&'a std::ffi::c_char> for Str<'a> {
     type Error = std::str::Utf8Error;
+    #[inline]
     fn try_from(value: &'a std::ffi::c_char) -> Result<Self, Self::Error> {
         // SAFETY: value cannot be null
         unsafe { std::ffi::CStr::from_ptr(value) }
@@ -79,6 +80,7 @@ impl<'a> TryFrom<&'a std::ffi::c_char> for Str<'a> {
 }
 
 impl<'a> Drop for Str<'a> {
+    #[inline]
     fn drop(&mut self) {
         unsafe { mpv_free(self.0.as_ptr().cast_mut().cast()) }
     }
@@ -110,16 +112,16 @@ pub trait AsBytes {
     fn as_bytes(&self) -> &[u8];
 }
 
-impl AsBytes for &str {
+impl AsBytes for str {
     #[inline]
     fn as_bytes(&self) -> &[u8] {
-        (*self).as_bytes()
+        self.as_bytes()
     }
 }
 
-impl AsBytes for &std::ffi::CStr {
+impl AsBytes for std::ffi::CStr {
     #[inline]
     fn as_bytes(&self) -> &[u8] {
-        (*self).to_bytes_with_nul()
+        self.to_bytes_with_nul()
     }
 }

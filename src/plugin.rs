@@ -27,7 +27,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     let script = unsafe { CStr::from_ptr(mpv_client_name(ctx)) }
         .to_str()
         .unwrap_or_default();
-    match smol::block_on(plugin(ctx, script)) {
+    match smol::block_on(plugin(Handle(ctx), script)) {
         Ok(_) => 0,
         Err(err) => {
             eprintln!("[{script}] {err:?}");
@@ -37,14 +37,14 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
 }
 
 #[allow(clippy::too_many_lines)]
-async fn plugin(ctx: *mut mpv_handle, name: &str) -> anyhow::Result<()> {
+async fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
     const OBJ_PATH: &str = "/org/mpris/MediaPlayer2";
 
     let pid = process::id();
     let connection = zbus::ConnectionBuilder::session()?
         .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
-        .serve_at(OBJ_PATH, mpris2::Root(Handle(ctx)))?
-        .serve_at(OBJ_PATH, mpris2::Player(Handle(ctx)))?
+        .serve_at(OBJ_PATH, mpris2::Root(ctx))?
+        .serve_at(OBJ_PATH, mpris2::Player(ctx))?
         .build()
         .await?;
 
@@ -99,7 +99,7 @@ async fn plugin(ctx: *mut mpv_handle, name: &str) -> anyhow::Result<()> {
 
         for ev in iter::once(-1.0)
             .chain(iter::repeat(0.0))
-            .map(|timeout| unsafe { *mpv_wait_event(ctx, timeout) })
+            .map(|timeout| unsafe { *mpv_wait_event(ctx.into(), timeout) })
         {
             macro_rules! data {
                 ($source:expr, bool) => {
@@ -235,7 +235,7 @@ impl State {
 }
 
 async fn signal_changed(
-    ctx: *mut mpv_handle,
+    ctx: Handle,
     state: State,
     root_ctxt: &SignalContext<'_>,
     root_changed: &mut HashMap<&'static str, Value<'static>>,
@@ -255,7 +255,7 @@ async fn signal_changed(
         }
     }
     if state.metadata {
-        if let Ok(value) = mpris2::metadata(Handle(ctx)).await {
+        if let Ok(value) = mpris2::metadata(ctx).await {
             player_changed.insert("Metadata", value.into());
         }
     }

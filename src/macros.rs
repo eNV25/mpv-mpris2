@@ -5,7 +5,7 @@ macro_rules! cstr {
         concat!($s, "\0").as_ptr().cast::<std::ffi::c_char>()
     };
     ($s:expr) => {{
-        debug_assert_eq!($crate::AsBytes::as_bytes(&$s).last(), Some(&b'\0'));
+        debug_assert_eq!($crate::AsBytes::as_bytes($s).last(), Some(&b'\0'));
         $s.as_ptr().cast::<std::ffi::c_char>()
     }};
 }
