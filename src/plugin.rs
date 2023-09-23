@@ -2,19 +2,23 @@
 #![warn(clippy::complexity)]
 #![warn(clippy::perf)]
 #![warn(clippy::pedantic)]
+#![allow(special_module_name)]
 
 use std::{
     collections::HashMap,
     ffi::{c_int, CStr},
-    iter, process,
+    iter,
 };
 
-use zbus::{fdo, zvariant::Value, Interface, SignalContext};
+use zbus::{zvariant::Value, Interface, SignalContext};
 
 #[allow(clippy::wildcard_imports)]
 use crate::ffi::*;
+#[allow(clippy::wildcard_imports)]
+use crate::lib::*;
 
 mod ffi;
+mod lib;
 mod macros;
 mod mpris2;
 
@@ -27,7 +31,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     let script = unsafe { CStr::from_ptr(mpv_client_name(ctx)) }
         .to_str()
         .unwrap_or_default();
-    match smol::block_on(plugin(Handle(ctx), script)) {
+    match plugin(Handle(ctx), script) {
         Ok(_) => 0,
         Err(err) => {
             eprintln!("[{script}] {err:?}");
@@ -37,37 +41,23 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
 }
 
 #[allow(clippy::too_many_lines)]
-async fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
-    const OBJ_PATH: &str = "/org/mpris/MediaPlayer2";
-
-    let pid = process::id();
-    let connection = zbus::ConnectionBuilder::session()?
-        .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
-        .serve_at(OBJ_PATH, mpris2::Root(ctx))?
-        .serve_at(OBJ_PATH, mpris2::Player(ctx))?
-        .build()
-        .await?;
-
-    let (root_ctxt, player_ctxt) = async {
-        let object_server = connection.object_server();
-        zbus::Result::Ok((
+fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
+    let (root_ctxt, player_ctxt) = {
+        let object_server = connection(ctx)?.object_server();
+        (
             object_server
-                .interface::<_, mpris2::Root>(OBJ_PATH)
-                .await?
+                .interface::<_, mpris2::Root>(OBJ_PATH)?
                 .signal_context()
-                .clone(),
+                .to_owned(),
             object_server
-                .interface::<_, mpris2::Player>(OBJ_PATH)
-                .await?
+                .interface::<_, mpris2::Player>(OBJ_PATH)?
                 .signal_context()
-                .clone(),
-        ))
-    }
-    .await?;
+                .to_owned(),
+        )
+    };
 
-    // These properties and those handled in the main loop
-    // must be kept in sync with the implementations in the
-    // dbus interface implementations.
+    // These properties and those handled in the main loop must be kept in sync with those
+    // mentioned in the interface implementations.
     // It's a bit of a pain in the ass but there's no other way.
     observe!(ctx, "media-title", "metadata", "duration");
     observe!(
@@ -121,12 +111,9 @@ async fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                     signal_changed(
                         ctx,
                         state,
-                        &root_ctxt,
-                        &mut root_changed,
-                        &player_ctxt,
-                        &mut player_changed,
+                        (&root_ctxt, &mut root_changed),
+                        (&player_ctxt, &mut player_changed),
                     )
-                    .await
                     .for_each(|err| err.unwrap_or_else(elog));
                     return Ok(());
                 }
@@ -134,9 +121,7 @@ async fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                 MPV_EVENT_PLAYBACK_RESTART if seeking => {
                     seeking = false;
                     if let Ok(position) = get!(ctx, "playback-time", f64) {
-                        mpris2::Player::seeked(&player_ctxt, mpris2::time_from_secs(position))
-                            .await
-                            .unwrap_or_else(elog);
+                        seeked(&player_ctxt, mpris2::time_from_secs(position)).unwrap_or_else(elog);
                     }
                 }
                 MPV_EVENT_PROPERTY_CHANGE => {
@@ -201,12 +186,9 @@ async fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
         signal_changed(
             ctx,
             state,
-            &root_ctxt,
-            &mut root_changed,
-            &player_ctxt,
-            &mut player_changed,
+            (&root_ctxt, &mut root_changed),
+            (&player_ctxt, &mut player_changed),
         )
-        .await
         .for_each(|err| err.unwrap_or_else(elog));
     }
 }
@@ -234,13 +216,17 @@ impl State {
     }
 }
 
-async fn signal_changed(
+fn signal_changed(
     ctx: Handle,
     state: State,
-    root_ctxt: &SignalContext<'_>,
-    root_changed: &mut HashMap<&'static str, Value<'static>>,
-    player_ctxt: &SignalContext<'_>,
-    player_changed: &mut HashMap<&'static str, Value<'static>>,
+    (root_ctxt, root_changed): (
+        &SignalContext<'_>,
+        &mut HashMap<&'static str, Value<'static>>,
+    ),
+    (player_ctxt, player_changed): (
+        &SignalContext<'_>,
+        &mut HashMap<&'static str, Value<'static>>,
+    ),
 ) -> impl Iterator<Item = zbus::Result<()>> {
     if state.playback_status() {
         if let Ok(value) =
@@ -255,37 +241,21 @@ async fn signal_changed(
         }
     }
     if state.metadata {
-        if let Ok(value) = mpris2::metadata(ctx).await {
+        if let Ok(value) = block_on(mpris2::metadata(ctx)) {
             player_changed.insert("Metadata", value.into());
         }
     }
     [
-        if root_changed.is_empty() {
-            None
-        } else {
-            let root = fdo::Properties::properties_changed(
-                root_ctxt,
-                mpris2::Root::name(),
-                &root_changed.iter().map(|(&k, v)| (k, v)).collect(),
-                &[],
-            )
-            .await;
+        (!root_changed.is_empty()).then(|| {
+            let root = properties_changed(root_ctxt, mpris2::Root::name(), root_changed);
             root_changed.clear();
-            Some(root)
-        },
-        if player_changed.is_empty() {
-            None
-        } else {
-            let player = fdo::Properties::properties_changed(
-                player_ctxt,
-                mpris2::Player::name(),
-                &player_changed.iter().map(|(&k, v)| (k, v)).collect(),
-                &[],
-            )
-            .await;
+            root
+        }),
+        (!player_changed.is_empty()).then(|| {
+            let player = properties_changed(player_ctxt, mpris2::Player::name(), player_changed);
             player_changed.clear();
-            Some(player)
-        },
+            player
+        }),
     ]
     .into_iter()
     .flatten()

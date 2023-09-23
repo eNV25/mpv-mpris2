@@ -7,12 +7,15 @@ use std::{
     time::Duration,
 };
 
+use async_io::Timer;
+use async_process::Command;
 use data_encoding::BASE64;
-use smol::{future::FutureExt, process::Command, Timer};
+use futures_lite::FutureExt;
 use url::Url;
 use zbus::{
     self, dbus_interface, fdo,
     zvariant::{ObjectPath, Value},
+    SignalContext,
 };
 
 #[repr(transparent)]
@@ -178,7 +181,7 @@ impl Player {
     }
 
     #[dbus_interface(signal)]
-    pub async fn seeked(ctxt: &zbus::SignalContext<'_>, position: i64) -> zbus::Result<()>;
+    pub async fn seeked(ctxt: &SignalContext<'_>, position: i64) -> zbus::Result<()>;
 
     fn open_uri(self, uri: String) -> fdo::Result<()> {
         let uri = uri + "\0";
@@ -317,50 +320,54 @@ pub fn loop_status_from(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub async fn metadata(
     ctx: impl Into<*mut crate::mpv_handle> + Copy + Send + 'static,
 ) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
-    let thumb = smol::spawn(async move {
-        let path = get!(ctx, "path").unwrap_or_default();
-        if path == get!(ctx, "stream-open-filename").unwrap_or_default() {
-            Command::new("ffmpegthumbnailer")
-                .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
-                .arg(&path)
-                .output()
-                .or(async {
-                    Timer::after(Duration::from_secs(1)).await;
-                    Err(io::ErrorKind::TimedOut.into())
-                })
-                .await
-                .ok()
-                .map(|output| BASE64.encode(&output.stdout))
-                .map(|data| format!("data:image/jpeg;base64,{data}"))
-        } else {
-            'ytdl: {
-                for cmd in ["yt-dlp", "yt-dlp_x86", "youtube-dl"] {
-                    let thumb = Command::new(cmd)
-                        .args(["--no-warnings", "--get-thumbnail"])
-                        .arg(&path)
-                        .output()
-                        .or(async {
-                            Timer::after(Duration::from_secs(5)).await;
-                            Err(io::ErrorKind::TimedOut.into())
-                        })
-                        .await
-                        .ok()
-                        .and_then(|output| {
-                            std::str::from_utf8(&output.stdout)
-                                .map(|s| s.trim().to_owned())
-                                .ok()
-                        });
-                    if thumb.is_some() {
-                        break 'ytdl thumb;
+    let thumb = crate::spawn(
+        async move {
+            let path = get!(ctx, "path").unwrap_or_default();
+            if path == get!(ctx, "stream-open-filename").unwrap_or_default() {
+                Command::new("ffmpegthumbnailer")
+                    .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
+                    .arg(&path)
+                    .output()
+                    .or(async {
+                        Timer::after(Duration::from_secs(1)).await;
+                        Err(io::ErrorKind::TimedOut.into())
+                    })
+                    .await
+                    .ok()
+                    .map(|output| BASE64.encode(&output.stdout))
+                    .map(|data| format!("data:image/jpeg;base64,{data}"))
+            } else {
+                'ytdl: {
+                    for cmd in ["yt-dlp", "yt-dlp_x86", "youtube-dl"] {
+                        let thumb = Command::new(cmd)
+                            .args(["--no-warnings", "--get-thumbnail"])
+                            .arg(&path)
+                            .output()
+                            .or(async {
+                                Timer::after(Duration::from_secs(5)).await;
+                                Err(io::ErrorKind::TimedOut.into())
+                            })
+                            .await
+                            .ok()
+                            .and_then(|output| {
+                                std::str::from_utf8(&output.stdout)
+                                    .map(|s| s.trim().to_owned())
+                                    .ok()
+                            });
+                        if thumb.is_some() {
+                            break 'ytdl thumb;
+                        }
                     }
+                    None
                 }
-                None
             }
-        }
-    });
+        },
+        "thumbnailer",
+    );
 
     let mut m = HashMap::new();
 
