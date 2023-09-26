@@ -8,7 +8,7 @@ use zbus::{
     SignalContext,
 };
 
-pub use zbus::Task;
+pub use zbus::{Task, block_on};
 
 pub const OBJ_PATH: &str = "/org/mpris/MediaPlayer2";
 
@@ -37,10 +37,6 @@ pub fn spawn<T: Send + 'static>(
         .inner()
         .executor()
         .spawn(future, name)
-}
-
-pub fn block_on<T>(future: impl Future<Output = T>) -> T {
-    async_io::block_on(future)
 }
 
 pub fn properties_changed(
