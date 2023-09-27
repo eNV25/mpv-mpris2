@@ -1,6 +1,6 @@
 #![macro_use]
 
-macro_rules! cstr {
+macro_rules! strc {
     ($s:literal) => {
         concat!($s, "\0").as_ptr().cast::<std::ffi::c_char>()
     };
@@ -12,7 +12,7 @@ macro_rules! cstr {
 
 macro_rules! command {
     ($ctx:ident, $($arg:expr),+ $(,)?) => {{
-        let args = [$(cstr!($arg)),+, std::ptr::null()];
+        let args = [$(strc!($arg)),+, std::ptr::null()];
         match unsafe { $crate::mpv_command($ctx.into(), std::ptr::addr_of!(args).cast_mut().cast()) } {
             0.. => Ok(()),
             error => Err($crate::Error(error.into())),
@@ -34,7 +34,7 @@ macro_rules! get {
         get!($ctx, $prop, MPV_FORMAT_DOUBLE)
     };
     ($ctx:ident, $prop:literal, MPV_FORMAT_STRING) => {
-        unsafe { $crate::mpv_get_property_string($ctx.into(), cstr!($prop)).as_ref() }
+        unsafe { $crate::mpv_get_property_string($ctx.into(), strc!($prop)).as_ref() }
             .and_then(|s| $crate::Str::try_from(s).ok())
             .map(|s| String::from(&*s))
     };
@@ -64,7 +64,7 @@ macro_rules! get {
         match unsafe {
             $crate::mpv_get_property(
                 $ctx.into(),
-                cstr!($prop),
+                strc!($prop),
                 $crate::$format,
                 std::ptr::addr_of_mut!(data).cast(),
             )
@@ -77,7 +77,7 @@ macro_rules! get {
 
 macro_rules! set {
     ($ctx:ident, $prop:literal, $data:expr) => {
-        set!($ctx, $prop, MPV_FORMAT_STRING, cstr!($data))
+        set!($ctx, $prop, MPV_FORMAT_STRING, strc!($data))
     };
     ($ctx:ident, $prop:literal, bool, $data:expr) => {
         set!($ctx, $prop, MPV_FORMAT_FLAG, $data as std::ffi::c_int)
@@ -93,7 +93,7 @@ macro_rules! set {
         match unsafe {
             $crate::mpv_set_property(
                 $ctx.into(),
-                cstr!($prop),
+                strc!($prop),
                 $crate::$format,
                 std::ptr::addr_of!(data).cast_mut().cast(),
             )
@@ -117,7 +117,7 @@ macro_rules! observe {
             $crate::mpv_observe_property(
                 $ctx.into(),
                 userdata,
-                cstr!($prop),
+                strc!($prop),
                 $crate::$format,
             );
         }

@@ -4,11 +4,7 @@
 #![warn(clippy::pedantic)]
 #![allow(special_module_name)]
 
-use std::{
-    collections::HashMap,
-    ffi::{c_int, CStr},
-    iter,
-};
+use std::{collections::HashMap, ffi::c_int, iter};
 
 use zbus::{zvariant::Value, Interface, SignalContext};
 
@@ -22,15 +18,19 @@ mod lib;
 mod macros;
 mod mpris2;
 
+macro_rules! cstr {
+    ($s:expr) => {
+        std::ffi::CStr::from_ptr($s).to_str().unwrap_or_default()
+    };
+}
+
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     if ctx.is_null() {
         return 1;
     }
-    let script = unsafe { CStr::from_ptr(mpv_client_name(ctx)) }
-        .to_str()
-        .unwrap_or_default();
+    let script = unsafe { cstr!(mpv_client_name(ctx)) };
     match plugin(Handle(ctx), script) {
         Ok(_) => 0,
         Err(err) => {
@@ -96,13 +96,10 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                     data!($source, std::ffi::c_int) != 0
                 };
                 ($source:expr, String) => {
-                    unsafe { CStr::from_ptr(*$source.data.cast()) }
-                        .to_str()
-                        .unwrap_or_default()
-                        .to_owned()
+                    cstr!(*$source.data.cast()).to_owned()
                 };
                 ($source:expr, $type:ty) => {
-                    unsafe { *$source.data.cast::<$type>() }
+                    *$source.data.cast::<$type>()
                 };
             }
             match ev.event_id {
@@ -125,19 +122,15 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                     }
                 }
                 MPV_EVENT_PROPERTY_CHANGE => {
-                    let prop = data!(ev, mpv_event_property);
-                    let name = unsafe { CStr::from_ptr(prop.name) }
-                        .to_str()
-                        .unwrap_or_default();
+                    let prop = unsafe { data!(ev, mpv_event_property) };
+                    let name = unsafe { cstr!(prop.name) };
                     match (name, prop.format) {
                         ("media-title" | "metadata" | "duration", _) => {
                             state.metadata = true;
                         }
                         ("keep-open", MPV_FORMAT_STRING) => {
                             const EOF_REACHED: u64 = u64::from_ne_bytes(*b"mpvEOFed");
-                            let value = unsafe { CStr::from_ptr(*prop.data.cast()) }
-                                .to_str()
-                                .unwrap_or_default();
+                            let value = unsafe { cstr!(*prop.data.cast()) };
                             state.keep_open.replace(if value == "no" {
                                 unobserve!(ctx, EOF_REACHED);
                                 false
@@ -147,34 +140,35 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                             });
                         }
                         ("loop-file", MPV_FORMAT_STRING) => {
-                            state.loop_file.replace(data!(prop, String));
+                            state.loop_file.replace(unsafe { data!(prop, String) });
                         }
                         ("loop-playlist", MPV_FORMAT_STRING) => {
-                            state.loop_playlist.replace(data!(prop, String));
+                            state.loop_playlist.replace(unsafe { data!(prop, String) });
                         }
                         ("fullscreen", MPV_FORMAT_FLAG) => {
-                            root_changed.insert("Fullscreen", data!(prop, bool).into());
+                            root_changed.insert("Fullscreen", unsafe { data!(prop, bool) }.into());
                         }
                         ("seekable", MPV_FORMAT_FLAG) => {
-                            player_changed.insert("CanSeek", data!(prop, bool).into());
+                            player_changed.insert("CanSeek", unsafe { data!(prop, bool) }.into());
                         }
                         ("idle-active", MPV_FORMAT_FLAG) => {
-                            state.idle_active.replace(data!(prop, bool));
+                            state.idle_active.replace(unsafe { data!(prop, bool) });
                         }
                         ("eof-reached", MPV_FORMAT_FLAG) => {
-                            state.eof_reached.replace(data!(prop, bool));
+                            state.eof_reached.replace(unsafe { data!(prop, bool) });
                         }
                         ("pause", MPV_FORMAT_FLAG) => {
-                            state.pause.replace(data!(prop, bool));
+                            state.pause.replace(unsafe { data!(prop, bool) });
                         }
                         ("shuffle", MPV_FORMAT_FLAG) => {
-                            player_changed.insert("Shuffle", data!(prop, bool).into());
+                            player_changed.insert("Shuffle", unsafe { data!(prop, bool) }.into());
                         }
                         ("speed", MPV_FORMAT_DOUBLE) => {
-                            player_changed.insert("Rate", data!(prop, f64).into());
+                            player_changed.insert("Rate", unsafe { data!(prop, f64) }.into());
                         }
                         ("volume", MPV_FORMAT_DOUBLE) => {
-                            player_changed.insert("Volume", (data!(prop, f64) / 100.0).into());
+                            player_changed
+                                .insert("Volume", (unsafe { data!(prop, f64) } / 100.0).into());
                         }
                         _ => {}
                     }
