@@ -42,8 +42,10 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
 
 #[allow(clippy::too_many_lines)]
 fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
+    let connection = connect(ctx)?;
+    scopeguard::defer! { disconnect() }
     let (root_ctxt, player_ctxt) = {
-        let object_server = connection(ctx)?.object_server();
+        let object_server = connection.object_server();
         (
             object_server
                 .interface::<_, mpris2::Root>(OBJ_PATH)?
