@@ -291,9 +291,11 @@ pub fn playback_status_from(
     eof_reached: Option<bool>,
     pause: Option<bool>,
 ) -> fdo::Result<&'static str> {
-    let (idle_active, eof_reached) = (idle_active.ok_or(()), eof_reached.ok_or(()));
+    let idle_active = idle_active.ok_or(());
     if idle_active.or_else(|_| get!(ctx, "idle-active", bool))?
-        || eof_reached.or_else(|_| get!(ctx, "eof-reached", bool))?
+        || eof_reached
+            .or_else(|| get!(ctx, "eof-reached", bool).ok())
+            .unwrap_or(false)
     {
         Ok("Stopped")
     } else if pause.ok_or(()).or_else(|_| get!(ctx, "pause", bool))? {
