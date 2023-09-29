@@ -123,9 +123,3 @@ macro_rules! observe {
         }
     }};
 }
-
-macro_rules! unobserve {
-    ($ctx:ident$(, $userdata:ident)+)=> {
-        $(unsafe { mpv_unobserve_property($ctx.into(), $userdata); })+
-    };
-}

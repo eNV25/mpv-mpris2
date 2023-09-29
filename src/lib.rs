@@ -7,12 +7,12 @@ pub use async_io::block_on;
 pub fn properties_changed(
     ctxt: &SignalContext<'_>,
     interface_name: InterfaceName<'_>,
-    changed_properties: &HashMap<&str, Value<'_>>,
+    changed_properties: &HashMap<&str, &Value<'_>>,
 ) -> zbus::Result<()> {
     block_on(fdo::Properties::properties_changed(
         ctxt,
         interface_name,
-        &changed_properties.iter().map(|(&k, v)| (k, v)).collect(),
+        changed_properties,
         &[],
     ))
 }

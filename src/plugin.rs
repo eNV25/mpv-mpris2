@@ -65,7 +65,7 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
         "fullscreen",
         "seekable",
         "idle-active",
-        // "eof-reached" is set in the main-loop
+        "eof-reached",
         "pause",
         "shuffle",
     );
@@ -80,11 +80,28 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
 
     let elog = |err| eprintln!("[{name}] {err:?}");
 
+    let mut keep_open = false;
     let mut seeking = false;
-    let mut root_changed: HashMap<&'static str, Value<'static>> = HashMap::new();
-    let mut player_changed: HashMap<&'static str, Value<'static>> = HashMap::new();
+    let mut root_changed = HashMap::new();
+    let mut player_changed = HashMap::new();
     loop {
-        let mut state = State::default();
+        let mut state = scopeguard::guard(
+            (State::default(), &mut root_changed, &mut player_changed),
+            |(state, root_changed, player_changed)| {
+                let root_changed_refs = root_changed.iter().map(|(&k, v)| (k, v)).collect();
+                let player_changed_refs = player_changed.iter().map(|(&k, v)| (k, v)).collect();
+                signal_changed(
+                    ctx,
+                    state,
+                    (root.signal_context(), root_changed_refs),
+                    (player.signal_context(), player_changed_refs),
+                )
+                .for_each(|err| err.unwrap_or_else(elog));
+                root_changed.clear();
+                player_changed.clear();
+            },
+        );
+        let (state, root_changed, player_changed) = &mut *state;
 
         for ev in iter::once(-1.0)
             .chain(iter::repeat(0.0))
@@ -103,16 +120,7 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
             }
             match ev.event_id {
                 MPV_EVENT_NONE => break,
-                MPV_EVENT_SHUTDOWN => {
-                    signal_changed(
-                        ctx,
-                        state,
-                        (root.signal_context(), &mut root_changed),
-                        (player.signal_context(), &mut player_changed),
-                    )
-                    .for_each(|err| err.unwrap_or_else(elog));
-                    return Ok(());
-                }
+                MPV_EVENT_SHUTDOWN => return Ok(()),
                 MPV_EVENT_SEEK => seeking = true,
                 MPV_EVENT_PLAYBACK_RESTART if seeking => {
                     seeking = false;
@@ -129,15 +137,9 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                             state.metadata = true;
                         }
                         ("keep-open", MPV_FORMAT_STRING) => {
-                            const EOF_REACHED: u64 = u64::from_ne_bytes(*b"mpvEOFed");
-                            let value = unsafe { cstr!(*prop.data.cast()) };
-                            state.keep_open.replace(if value == "no" {
-                                unobserve!(ctx, EOF_REACHED);
-                                false
-                            } else {
-                                observe!(ctx, EOF_REACHED, "eof-reached", MPV_FORMAT_FLAG);
-                                true
-                            });
+                            let value = unsafe { cstr!(*prop.data.cast()) } != "no";
+                            keep_open = value;
+                            state.keep_open.replace(value);
                         }
                         ("loop-file", MPV_FORMAT_STRING) => {
                             state.loop_file.replace(unsafe { data!(prop, String) });
@@ -154,7 +156,7 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                         ("idle-active", MPV_FORMAT_FLAG) => {
                             state.idle_active.replace(unsafe { data!(prop, bool) });
                         }
-                        ("eof-reached", MPV_FORMAT_FLAG) => {
+                        ("eof-reached", MPV_FORMAT_FLAG) if keep_open => {
                             state.eof_reached.replace(unsafe { data!(prop, bool) });
                         }
                         ("pause", MPV_FORMAT_FLAG) => {
@@ -176,14 +178,6 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                 _ => {}
             }
         }
-
-        signal_changed(
-            ctx,
-            state,
-            (root.signal_context(), &mut root_changed),
-            (player.signal_context(), &mut player_changed),
-        )
-        .for_each(|err| err.unwrap_or_else(elog));
     }
 }
 
@@ -199,58 +193,64 @@ struct State {
 }
 
 impl State {
-    const fn playback_status(&self) -> bool {
-        self.idle_active.is_some()
+    fn playback_status(&mut self, ctx: Handle) -> Option<Value<'static>> {
+        if self.idle_active.is_some()
             | self.keep_open.is_some()
             | self.eof_reached.is_some()
             | self.pause.is_some()
+        {
+            self.keep_open.take();
+            mpris2::playback_status_from(
+                ctx,
+                self.idle_active.take(),
+                self.eof_reached.take(),
+                self.pause.take(),
+            )
+            .ok()
+            .map(Into::into)
+        } else {
+            None
+        }
     }
-    const fn loop_status(&self) -> bool {
-        self.loop_file.is_some() | self.loop_playlist.is_some()
+    fn loop_status(&mut self, ctx: Handle) -> Option<Value<'static>> {
+        if self.loop_file.is_some() | self.loop_playlist.is_some() {
+            mpris2::loop_status_from(ctx, self.loop_file.take(), self.loop_playlist.take())
+                .ok()
+                .map(Into::into)
+        } else {
+            None
+        }
+    }
+    fn metadata(&mut self, ctx: Handle) -> Option<Value<'static>> {
+        if self.metadata {
+            block_on(mpris2::metadata(ctx)).ok().map(Into::into)
+        } else {
+            None
+        }
     }
 }
 
 fn signal_changed(
     ctx: Handle,
-    state: State,
-    (root_ctxt, root_changed): (
-        &SignalContext<'_>,
-        &mut HashMap<&'static str, Value<'static>>,
-    ),
-    (player_ctxt, player_changed): (
-        &SignalContext<'_>,
-        &mut HashMap<&'static str, Value<'static>>,
-    ),
+    mut state: State,
+    (root_ctxt, root_changed): (&SignalContext<'_>, HashMap<&'static str, &Value<'static>>),
+    (player_ctxt, mut player_changed): (&SignalContext<'_>, HashMap<&'static str, &Value<'static>>),
 ) -> impl Iterator<Item = zbus::Result<()>> {
-    if state.playback_status() {
-        if let Ok(value) =
-            mpris2::playback_status_from(ctx, state.idle_active, state.eof_reached, state.pause)
-        {
-            player_changed.insert("PlaybackStatus", value.into());
-        }
+    let playback_status = state.playback_status(ctx);
+    let loop_status = state.loop_status(ctx);
+    let metadata = state.metadata(ctx);
+    if let Some(ref value) = playback_status {
+        player_changed.insert("PlaybackStatus", value);
     }
-    if state.loop_status() {
-        if let Ok(value) = mpris2::loop_status_from(ctx, state.loop_file, state.loop_playlist) {
-            player_changed.insert("LoopStatus", value.into());
-        }
+    if let Some(ref value) = loop_status {
+        player_changed.insert("LoopStatus", value);
     }
-    if state.metadata {
-        if let Ok(value) = block_on(mpris2::metadata(ctx)) {
-            player_changed.insert("Metadata", value.into());
-        }
+    if let Some(ref value) = metadata {
+        player_changed.insert("Metadata", value);
     }
-    [
-        (!root_changed.is_empty()).then(|| {
-            let root = properties_changed(root_ctxt, mpris2::Root::name(), root_changed);
-            root_changed.clear();
-            root
-        }),
-        (!player_changed.is_empty()).then(|| {
-            let player = properties_changed(player_ctxt, mpris2::Player::name(), player_changed);
-            player_changed.clear();
-            player
-        }),
-    ]
-    .into_iter()
-    .flatten()
+    let root = (!root_changed.is_empty())
+        .then(|| properties_changed(root_ctxt, mpris2::Root::name(), &root_changed));
+    let player = (!player_changed.is_empty())
+        .then(|| properties_changed(player_ctxt, mpris2::Player::name(), &player_changed));
+    root.into_iter().chain(player)
 }
