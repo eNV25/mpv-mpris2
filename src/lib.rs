@@ -1,47 +1,8 @@
-use std::{collections::HashMap, future::Future, process, sync::OnceLock};
+use std::collections::HashMap;
 
-use zbus::{
-    blocking::{Connection, ConnectionBuilder},
-    fdo,
-    names::InterfaceName,
-    zvariant::Value,
-    SignalContext,
-};
+use zbus::{fdo, names::InterfaceName, zvariant::Value, SignalContext};
 
-pub use zbus::{block_on, Task};
-
-pub const OBJ_PATH: &str = "/org/mpris/MediaPlayer2";
-
-static mut CONNECTION: OnceLock<Connection> = OnceLock::new();
-
-pub fn connect(ctx: crate::Handle) -> zbus::Result<&'static Connection> {
-    assert!(unsafe { CONNECTION.get() }.is_none());
-    let pid = process::id();
-    let connection = ConnectionBuilder::session()?
-        .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
-        .serve_at(OBJ_PATH, crate::mpris2::Root(ctx))?
-        .serve_at(OBJ_PATH, crate::mpris2::Player(ctx))?
-        .build()?;
-    unsafe { CONNECTION.set(connection).unwrap_unchecked() };
-    Ok(unsafe { CONNECTION.get().unwrap_unchecked() })
-}
-
-pub fn disconnect() {
-    unsafe {
-        CONNECTION.take();
-    }
-}
-
-pub fn spawn<T: Send + 'static>(
-    future: impl Future<Output = T> + Send + 'static,
-    name: &str,
-) -> Task<T> {
-    // spawn is undocumented, but IDGAF because I get to save on an extra background thread.
-    unsafe { CONNECTION.get().unwrap_unchecked() }
-        .inner()
-        .executor()
-        .spawn(future, name)
-}
+pub use async_io::block_on;
 
 pub fn properties_changed(
     ctxt: &SignalContext<'_>,

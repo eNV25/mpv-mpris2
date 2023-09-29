@@ -4,8 +4,10 @@
 #![warn(clippy::pedantic)]
 #![allow(special_module_name)]
 
+use std::process;
 use std::{collections::HashMap, ffi::c_int, iter};
 
+use zbus::blocking::ConnectionBuilder;
 use zbus::{zvariant::Value, Interface, SignalContext};
 
 #[allow(clippy::wildcard_imports)]
@@ -42,21 +44,16 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
 
 #[allow(clippy::too_many_lines)]
 fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
-    let connection = connect(ctx)?;
-    scopeguard::defer! { disconnect() }
-    let (root_ctxt, player_ctxt) = {
-        let object_server = connection.object_server();
-        (
-            object_server
-                .interface::<_, mpris2::Root>(OBJ_PATH)?
-                .signal_context()
-                .to_owned(),
-            object_server
-                .interface::<_, mpris2::Player>(OBJ_PATH)?
-                .signal_context()
-                .to_owned(),
-        )
-    };
+    pub const OBJ_PATH: &str = "/org/mpris/MediaPlayer2";
+    let pid = process::id();
+    let connection = ConnectionBuilder::session()?
+        .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
+        .serve_at(OBJ_PATH, crate::mpris2::Root(ctx))?
+        .serve_at(OBJ_PATH, crate::mpris2::Player(ctx))?
+        .build()?;
+    let object_server = connection.object_server();
+    let root = object_server.interface::<_, mpris2::Root>(OBJ_PATH)?;
+    let player = object_server.interface::<_, mpris2::Player>(OBJ_PATH)?;
 
     // These properties and those handled in the main loop must be kept in sync with those
     // mentioned in the interface implementations.
@@ -110,8 +107,8 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                     signal_changed(
                         ctx,
                         state,
-                        (&root_ctxt, &mut root_changed),
-                        (&player_ctxt, &mut player_changed),
+                        (root.signal_context(), &mut root_changed),
+                        (player.signal_context(), &mut player_changed),
                     )
                     .for_each(|err| err.unwrap_or_else(elog));
                     return Ok(());
@@ -120,7 +117,8 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                 MPV_EVENT_PLAYBACK_RESTART if seeking => {
                     seeking = false;
                     if let Ok(position) = get!(ctx, "playback-time", f64) {
-                        seeked(&player_ctxt, mpris2::time_from_secs(position)).unwrap_or_else(elog);
+                        seeked(player.signal_context(), mpris2::time_from_secs(position))
+                            .unwrap_or_else(elog);
                     }
                 }
                 MPV_EVENT_PROPERTY_CHANGE => {
@@ -182,8 +180,8 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
         signal_changed(
             ctx,
             state,
-            (&root_ctxt, &mut root_changed),
-            (&player_ctxt, &mut player_changed),
+            (root.signal_context(), &mut root_changed),
+            (player.signal_context(), &mut player_changed),
         )
         .for_each(|err| err.unwrap_or_else(elog));
     }
