@@ -223,7 +223,7 @@ impl State {
     }
     fn metadata(&mut self, ctx: Handle) -> Option<Value<'static>> {
         if self.metadata {
-            block_on(mpris2::metadata(ctx)).ok().map(Into::into)
+            mpris2::metadata(ctx).ok().map(Into::into)
         } else {
             None
         }

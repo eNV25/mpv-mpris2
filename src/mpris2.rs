@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use async_io::Timer;
+use async_io::{block_on, Timer};
 use async_process::Command;
 use data_encoding::BASE64;
 use futures_lite::FutureExt;
@@ -259,8 +259,8 @@ impl Player {
     }
 
     #[dbus_interface(property)]
-    pub async fn metadata(self) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
-        metadata(self).await
+    pub fn metadata(self) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
+        metadata(self)
     }
 
     #[dbus_interface(property)]
@@ -322,52 +322,9 @@ pub fn loop_status_from(
     }
 }
 
-#[allow(clippy::too_many_lines)]
-pub async fn metadata(
+pub fn metadata(
     ctx: impl Into<*mut crate::mpv_handle> + Copy + Send + 'static,
 ) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
-    let thumb = async move {
-        let path = get!(ctx, "path").unwrap_or_default();
-        if path == get!(ctx, "stream-open-filename").unwrap_or_default() {
-            Command::new("ffmpegthumbnailer")
-                .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
-                .arg(&path)
-                .output()
-                .or(async {
-                    Timer::after(Duration::from_secs(1)).await;
-                    Err(io::ErrorKind::TimedOut.into())
-                })
-                .await
-                .ok()
-                .map(|output| BASE64.encode(&output.stdout))
-                .map(|data| format!("data:image/jpeg;base64,{data}"))
-        } else {
-            'ytdl: {
-                for cmd in ["yt-dlp", "yt-dlp_x86", "youtube-dl"] {
-                    let thumb = Command::new(cmd)
-                        .args(["--no-warnings", "--get-thumbnail"])
-                        .arg(&path)
-                        .output()
-                        .or(async {
-                            Timer::after(Duration::from_secs(5)).await;
-                            Err(io::ErrorKind::TimedOut.into())
-                        })
-                        .await
-                        .ok()
-                        .and_then(|output| {
-                            std::str::from_utf8(&output.stdout)
-                                .map(|s| s.trim().to_owned())
-                                .ok()
-                        });
-                    if thumb.is_some() {
-                        break 'ytdl thumb;
-                    }
-                }
-                None
-            }
-        }
-    };
-
     let mut m = HashMap::new();
 
     m.insert(
@@ -426,9 +383,56 @@ pub async fn metadata(
         m.insert("mpris:url", String::from(url).into());
     }
 
-    if let Some(url) = thumb.await {
+    if let Some(url) = thumbnail(ctx) {
         m.insert("mpris:artUrl", url.into());
     }
 
     Ok(m)
+}
+
+fn thumbnail(ctx: impl Into<*mut crate::mpv_handle> + Copy) -> Option<String> {
+    let path = get!(ctx, "path").unwrap_or_default();
+    if path == get!(ctx, "stream-open-filename").unwrap_or_default() {
+        let cmd = Command::new("ffmpegthumbnailer")
+            .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
+            .arg(&path)
+            .kill_on_drop(true)
+            .output()
+            .or(async {
+                Timer::after(Duration::from_secs(1)).await;
+                Err(io::ErrorKind::TimedOut.into())
+            });
+        block_on(cmd)
+            .ok()
+            .map(|output| BASE64.encode(&output.stdout))
+            .map(|data| format!("data:image/jpeg;base64,{data}"))
+    } else {
+        ["yt-dlp", "yt-dlp_x86", "youtube-dl"]
+            .into_iter()
+            .find_map(|cmd| {
+                let cmd = Command::new(cmd)
+                    .args(["--no-warnings", "--get-thumbnail"])
+                    .arg(&path)
+                    .kill_on_drop(true)
+                    .output()
+                    .or(async {
+                        Timer::after(Duration::from_secs(5)).await;
+                        Err(io::ErrorKind::TimedOut.into())
+                    });
+                block_on(cmd)
+                    .ok()
+                    .and_then(|output| String::from_utf8(output.stdout).map(truncate_newline).ok())
+            })
+    }
+}
+
+fn truncate_newline(mut s: String) -> String {
+    if let [.., r, b'\n'] = s.as_bytes() {
+        if let b'\r' = r {
+            s.truncate(s.len() - 2);
+        } else {
+            s.truncate(s.len() - 1);
+        }
+    }
+    s
 }

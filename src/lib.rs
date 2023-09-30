@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
+use async_io::block_on;
 use zbus::{fdo, names::InterfaceName, zvariant::Value, SignalContext};
-
-pub use async_io::block_on;
 
 pub fn properties_changed(
     ctxt: &SignalContext<'_>,
