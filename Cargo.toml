@@ -1,29 +1,29 @@
 [package]
 name = "mpv-mpris2"
-version = "0.0.1-alpha12"
+version = "0.0.1-alpha13"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib"]
 path = "src/plugin.rs"
 
+[profile.release]
+lto = true
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.75"
-async-io = "1.13.0"
-async-process = "1.8.0"
-data-encoding = "2.4.0"
-futures-lite = "1.13.0"
-scopeguard = "1.2.0"
-serde_json = "1.0.107"
-thiserror = "1.0.49"
-url = "2.4.1"
-zbus = "3.14.1"
+anyhow = "1"
+async-io = "1"
+async-process = "1"
+data-encoding = "2"
+futures-lite = "1"
+scopeguard = "1"
+serde_json = "1"
+thiserror = "1"
+url = "2"
+zbus = "3"
 
 [build-dependencies]
-bindgen = "0.68.1"
-pkg-config = "0.3.27"
-
-[profile.release]
-lto = true
+bindgen = "0"
+pkg-config = "0"
