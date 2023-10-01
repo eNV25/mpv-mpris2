@@ -5,8 +5,6 @@
 
 include!(concat!(env!("OUT_DIR"), "/ffi.rs"));
 
-use thiserror::Error;
-
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct Handle(pub *mut mpv_handle);
@@ -21,7 +19,6 @@ impl From<Handle> for *mut mpv_handle {
 }
 
 #[repr(transparent)]
-#[derive(Error)]
 pub struct Error(pub mpv_error);
 
 impl From<mpv_error> for Error {
@@ -63,6 +60,8 @@ impl std::fmt::Display for Error {
         f.write_str(str)
     }
 }
+
+impl std::error::Error for Error {}
 
 #[repr(transparent)]
 #[derive(Default, PartialEq, Eq, PartialOrd, Ord)]
