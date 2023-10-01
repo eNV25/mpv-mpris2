@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use async_io::{block_on, Timer};
+use async_io::Timer;
 use async_process::Command;
 use data_encoding::BASE64;
 use futures_lite::FutureExt;
@@ -17,6 +17,8 @@ use zbus::{
     zvariant::{ObjectPath, Value},
     SignalContext,
 };
+
+use crate::Block;
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
@@ -393,7 +395,7 @@ pub fn metadata(
 fn thumbnail(ctx: impl Into<*mut crate::mpv_handle> + Copy) -> Option<String> {
     let path = get!(ctx, "path").unwrap_or_default();
     if path == get!(ctx, "stream-open-filename").unwrap_or_default() {
-        let cmd = Command::new("ffmpegthumbnailer")
+        Command::new("ffmpegthumbnailer")
             .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
             .arg(&path)
             .kill_on_drop(true)
@@ -401,8 +403,8 @@ fn thumbnail(ctx: impl Into<*mut crate::mpv_handle> + Copy) -> Option<String> {
             .or(async {
                 Timer::after(Duration::from_secs(1)).await;
                 Err(io::ErrorKind::TimedOut.into())
-            });
-        block_on(cmd)
+            })
+            .block_io()
             .ok()
             .map(|output| BASE64.encode(&output.stdout))
             .map(|data| format!("data:image/jpeg;base64,{data}"))
@@ -410,7 +412,7 @@ fn thumbnail(ctx: impl Into<*mut crate::mpv_handle> + Copy) -> Option<String> {
         ["yt-dlp", "yt-dlp_x86", "youtube-dl"]
             .into_iter()
             .find_map(|cmd| {
-                let cmd = Command::new(cmd)
+                Command::new(cmd)
                     .args(["--no-warnings", "--get-thumbnail"])
                     .arg(&path)
                     .kill_on_drop(true)
@@ -418,8 +420,8 @@ fn thumbnail(ctx: impl Into<*mut crate::mpv_handle> + Copy) -> Option<String> {
                     .or(async {
                         Timer::after(Duration::from_secs(5)).await;
                         Err(io::ErrorKind::TimedOut.into())
-                    });
-                block_on(cmd)
+                    })
+                    .block_io()
                     .ok()
                     .and_then(|output| String::from_utf8(output.stdout).map(truncate_newline).ok())
             })
