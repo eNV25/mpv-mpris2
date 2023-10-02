@@ -2,11 +2,7 @@ use std::{collections::HashMap, future::Future};
 
 use zbus::{fdo, names::InterfaceName, zvariant::Value, SignalContext};
 
-mod block {
-    pub trait Sealed {}
-}
-
-pub trait Block: Sized + Future + block::Sealed {
+pub trait Block: Sized + Future {
     fn block(self) -> <Self as Future>::Output {
         futures_lite::future::block_on(self)
     }
@@ -15,7 +11,6 @@ pub trait Block: Sized + Future + block::Sealed {
     }
 }
 
-impl<F: Future> block::Sealed for F {}
 impl<F: Future> Block for F {}
 
 pub fn properties_changed(
