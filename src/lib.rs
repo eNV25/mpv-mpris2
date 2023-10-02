@@ -6,20 +6,17 @@ mod block {
     pub trait Sealed {}
 }
 
-pub trait Block<T>: block::Sealed {
-    fn block(self) -> T;
-    fn block_io(self) -> T;
-}
-
-impl<F: Future<Output = T>, T> block::Sealed for F {}
-impl<F: Future<Output = T>, T> Block<T> for F {
-    fn block(self) -> T {
+pub trait Block: Sized + Future + block::Sealed {
+    fn block(self) -> <Self as Future>::Output {
         futures_lite::future::block_on(self)
     }
-    fn block_io(self) -> T {
+    fn block_io(self) -> <Self as Future>::Output {
         async_io::block_on(self)
     }
 }
+
+impl<F: Future> block::Sealed for F {}
+impl<F: Future> Block for F {}
 
 pub fn properties_changed(
     ctxt: &SignalContext<'_>,
