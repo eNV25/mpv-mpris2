@@ -101,7 +101,7 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                 player_changed.clear();
             },
         );
-        let (state, root_changed, player_changed) = &mut *state;
+        let (state, &mut ref mut root_changed, &mut ref mut player_changed) = &mut *state;
 
         for ev in iter::once(-1.0)
             .chain(iter::repeat(0.0))
