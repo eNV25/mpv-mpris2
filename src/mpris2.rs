@@ -79,10 +79,11 @@ impl Root {
             })
             .flatten()
             .filter_map(Result::ok)
-            .find_map(|line| line.strip_prefix("MimeType=").map(str::to_owned))
-            .map_or_else(Vec::new, |v| {
-                v.split_terminator(';').map(str::to_owned).collect()
+            .find_map(|line| {
+                line.strip_prefix("MimeType=")
+                    .map(|v| v.split_terminator(';').map(str::to_owned).collect())
             })
+            .unwrap_or_default()
     }
 
     #[dbus_interface(property)]
