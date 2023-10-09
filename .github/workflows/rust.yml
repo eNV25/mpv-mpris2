@@ -1,6 +1,11 @@
 name: Rust
 
-on: push
+on:
+  push:
+    branches-ignore:
+      - 'dependabot/**'
+      - 'pr/**'
+  pull_request:
 
 jobs:
   build:
