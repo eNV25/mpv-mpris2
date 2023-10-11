@@ -1,3 +1,5 @@
+#![allow(clippy::ignored_unit_patterns)] // for dbus_interface macro
+
 use std::{
     collections::{hash_map, HashMap},
     env,
@@ -295,13 +297,13 @@ pub fn playback_status_from(
     pause: Option<bool>,
 ) -> fdo::Result<&'static str> {
     let idle_active = idle_active.ok_or(());
-    if idle_active.or_else(|_| get!(ctx, "idle-active", bool))?
+    if idle_active.or_else(|()| get!(ctx, "idle-active", bool))?
         || eof_reached
             .or_else(|| get!(ctx, "eof-reached", bool).ok())
             .unwrap_or(false)
     {
         Ok("Stopped")
-    } else if pause.ok_or(()).or_else(|_| get!(ctx, "pause", bool))? {
+    } else if pause.ok_or(()).or_else(|()| get!(ctx, "pause", bool))? {
         Ok("Paused")
     } else {
         Ok("Playing")

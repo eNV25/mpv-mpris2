@@ -34,7 +34,7 @@ pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
     }
     let script = unsafe { cstr!(mpv_client_name(ctx)) };
     match plugin(Handle(ctx), script) {
-        Ok(_) => 0,
+        Ok(()) => 0,
         Err(err) => {
             eprintln!("[{script}] {err:?}");
             1
