@@ -46,8 +46,8 @@ macro_rules! data {
     ($source:expr, bool) => {
         data!($source, std::ffi::c_int) != 0
     };
-    ($source:expr, String) => {
-        cstr!(*$source.data.cast()).to_owned()
+    ($source:expr, &str) => {
+        cstr!(*$source.data.cast())
     };
     ($source:expr, $type:ty) => {
         *$source.data.cast::<$type>()
@@ -106,13 +106,13 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                         ("keep-open", MPV_FORMAT_STRING) => {
                             let value = unsafe { cstr!(*prop.data.cast()) } != "no";
                             keep_open = value;
-                            state.keep_open.replace(value);
+                            state.keep_open = Some(value);
                         }
                         ("loop-file", MPV_FORMAT_STRING) => {
-                            state.loop_file.replace(unsafe { data!(prop, String) });
+                            state.loop_file = Some(unsafe { data!(prop, &str) } != "no");
                         }
                         ("loop-playlist", MPV_FORMAT_STRING) => {
-                            state.loop_playlist.replace(unsafe { data!(prop, String) });
+                            state.loop_playlist = Some(unsafe { data!(prop, &str) } != "no");
                         }
                         ("fullscreen", MPV_FORMAT_FLAG) => {
                             root_changed.push(("Fullscreen", unsafe { data!(prop, bool) }.into()));
@@ -121,13 +121,13 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                             player_changed.push(("CanSeek", unsafe { data!(prop, bool) }.into()));
                         }
                         ("idle-active", MPV_FORMAT_FLAG) => {
-                            state.idle_active.replace(unsafe { data!(prop, bool) });
+                            state.idle_active = Some(unsafe { data!(prop, bool) });
                         }
                         ("eof-reached", MPV_FORMAT_FLAG) if keep_open => {
-                            state.eof_reached.replace(unsafe { data!(prop, bool) });
+                            state.eof_reached = Some(unsafe { data!(prop, bool) });
                         }
                         ("pause", MPV_FORMAT_FLAG) => {
-                            state.pause.replace(unsafe { data!(prop, bool) });
+                            state.pause = Some(unsafe { data!(prop, bool) });
                         }
                         ("shuffle", MPV_FORMAT_FLAG) => {
                             player_changed.push(("Shuffle", unsafe { data!(prop, bool) }.into()));
@@ -179,8 +179,8 @@ struct State {
     keep_open: Option<bool>,
     eof_reached: Option<bool>,
     pause: Option<bool>,
-    loop_file: Option<String>,
-    loop_playlist: Option<String>,
+    loop_file: Option<bool>,
+    loop_playlist: Option<bool>,
     metadata: bool,
 }
 

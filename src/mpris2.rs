@@ -310,15 +310,15 @@ pub fn playback_status_from(
 
 pub fn loop_status_from(
     ctx: impl Into<*mut crate::mpv_handle> + Copy,
-    loop_file: Option<String>,
-    loop_playlist: Option<String>,
+    loop_file: Option<bool>,
+    loop_playlist: Option<bool>,
 ) -> fdo::Result<&'static str> {
     let err = || fdo::Error::Failed("cannot get property".into());
-    let loop_file = loop_file.or_else(|| get!(ctx, "loop-file"));
-    let loop_playlist = loop_playlist.or_else(|| get!(ctx, "loop-playlist"));
-    if loop_file.ok_or_else(err)? != "no" {
+    let loop_file = loop_file.or_else(|| get!(ctx, "loop-file").map(|x| x != "no"));
+    let loop_playlist = loop_playlist.or_else(|| get!(ctx, "loop-playlist").map(|x| x != "no"));
+    if loop_file.ok_or_else(err)? {
         Ok("Track")
-    } else if loop_playlist.ok_or_else(err)? != "no" {
+    } else if loop_playlist.ok_or_else(err)? {
         Ok("Playlist")
     } else {
         Ok("None")
