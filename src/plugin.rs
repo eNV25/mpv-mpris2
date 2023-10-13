@@ -7,8 +7,7 @@
 use std::process;
 use std::{collections::HashMap, ffi::c_int, iter};
 
-use zbus::blocking::ConnectionBuilder;
-use zbus::{zvariant::Value, Interface, SignalContext};
+use zbus::{blocking::ConnectionBuilder, zvariant::Value, Interface, SignalContext};
 
 #[allow(clippy::wildcard_imports)]
 use crate::ffi::*;
