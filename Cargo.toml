@@ -14,7 +14,7 @@ lto = true
 
 [dependencies]
 anyhow = "1"
-async-io = "2"
+async-io = "1"
 async-process = "1"
 data-encoding = "2"
 futures-lite = "1"
