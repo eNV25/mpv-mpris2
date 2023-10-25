@@ -188,8 +188,8 @@ impl Player {
     #[dbus_interface(signal)]
     pub async fn seeked(ctxt: &SignalContext<'_>, position: i64) -> zbus::Result<()>;
 
-    fn open_uri(self, uri: String) -> fdo::Result<()> {
-        let uri = uri + "\0";
+    fn open_uri(self, mut uri: String) -> fdo::Result<()> {
+        uri.push('\0');
         Ok(command!(self, "loadfile", uri.as_str())?)
     }
 
@@ -204,12 +204,12 @@ impl Player {
 
     #[dbus_interface(property)]
     fn playback_status(self) -> fdo::Result<&'static str> {
-        playback_status_from(self, None, None, None)
+        playback_status_from(self.0, None, None, None)
     }
 
     #[dbus_interface(property)]
     fn loop_status(self) -> fdo::Result<&'static str> {
-        loop_status_from(self, None, None)
+        loop_status_from(self.0, None, None)
     }
 
     #[dbus_interface(property)]
@@ -265,7 +265,7 @@ impl Player {
 
     #[dbus_interface(property)]
     pub fn metadata(self) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
-        metadata(self)
+        metadata(self.0)
     }
 
     #[dbus_interface(property)]
@@ -291,7 +291,7 @@ impl Player {
 }
 
 pub fn playback_status_from(
-    ctx: impl Into<*mut crate::mpv_handle> + Copy,
+    ctx: crate::Handle,
     idle_active: Option<bool>,
     eof_reached: Option<bool>,
     pause: Option<bool>,
@@ -311,7 +311,7 @@ pub fn playback_status_from(
 }
 
 pub fn loop_status_from(
-    ctx: impl Into<*mut crate::mpv_handle> + Copy,
+    ctx: crate::Handle,
     loop_file: Option<bool>,
     loop_playlist: Option<bool>,
 ) -> fdo::Result<&'static str> {
@@ -327,9 +327,7 @@ pub fn loop_status_from(
     }
 }
 
-pub fn metadata(
-    ctx: impl Into<*mut crate::mpv_handle> + Copy + Send + 'static,
-) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
+pub fn metadata(ctx: crate::Handle) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
     let mut m = HashMap::new();
 
     m.insert(
@@ -395,7 +393,7 @@ pub fn metadata(
     Ok(m)
 }
 
-fn thumbnail(ctx: impl Into<*mut crate::mpv_handle> + Copy) -> Option<String> {
+fn thumbnail(ctx: crate::Handle) -> Option<String> {
     let path = get!(ctx, "path").unwrap_or_default();
     if path == get!(ctx, "stream-open-filename").unwrap_or_default() {
         Command::new("ffmpegthumbnailer")
@@ -426,7 +424,8 @@ fn thumbnail(ctx: impl Into<*mut crate::mpv_handle> + Copy) -> Option<String> {
                     })
                     .block_io()
                     .ok()
-                    .and_then(|output| String::from_utf8(output.stdout).map(truncate_newline).ok())
+                    .map(|output| String::from_utf8(output.stdout).unwrap_or_default())
+                    .map(truncate_newline)
             })
     }
 }
