@@ -9,13 +9,11 @@ use std::{
     time::Duration,
 };
 
-use async_io::Timer;
-use async_process::Command;
 use data_encoding::BASE64;
-use futures_lite::FutureExt;
+use smol::{future::FutureExt, process::Command, Timer};
 use url::Url;
 use zbus::{
-    self, dbus_interface, fdo,
+    dbus_interface, fdo,
     zvariant::{ObjectPath, Value},
     SignalContext,
 };

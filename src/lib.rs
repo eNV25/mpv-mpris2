@@ -4,10 +4,10 @@ use zbus::{fdo, names::InterfaceName, zvariant::Value, SignalContext};
 
 pub trait Block: Sized + Future {
     fn block(self) -> <Self as Future>::Output {
-        futures_lite::future::block_on(self)
+        smol::future::block_on(self)
     }
     fn block_io(self) -> <Self as Future>::Output {
-        async_io::block_on(self)
+        smol::block_on(self)
     }
 }
 
