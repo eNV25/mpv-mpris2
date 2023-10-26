@@ -48,7 +48,7 @@ dependencies = [
  "async-task",
  "concurrent-queue",
  "fastrand 2.0.1",
- "futures-lite",
+ "futures-lite 1.13.0",
  "slab",
 ]
 
@@ -61,7 +61,7 @@ dependencies = [
  "async-lock",
  "autocfg",
  "blocking",
- "futures-lite",
+ "futures-lite 1.13.0",
 ]
 
 [[package]]
@@ -74,7 +74,7 @@ dependencies = [
  "autocfg",
  "cfg-if",
  "concurrent-queue",
- "futures-lite",
+ "futures-lite 1.13.0",
  "log",
  "parking",
  "polling",
@@ -105,7 +105,7 @@ dependencies = [
  "blocking",
  "cfg-if",
  "event-listener 3.0.0",
- "futures-lite",
+ "futures-lite 1.13.0",
  "rustix 0.38.17",
  "windows-sys",
 ]
@@ -223,7 +223,7 @@ dependencies = [
  "async-task",
  "fastrand 2.0.1",
  "futures-io",
- "futures-lite",
+ "futures-lite 1.13.0",
  "piper",
  "tracing",
 ]
@@ -436,6 +436,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures-lite"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c1155db57329dca6d018b61e76b1488ce9a2e5e44028cac420a5898f4fcef63"
+dependencies = [
+ "fastrand 2.0.1",
+ "futures-core",
+ "futures-io",
+ "memchr",
+ "parking",
+ "pin-project-lite",
+ "waker-fn",
+]
+
+[[package]]
 name = "futures-sink"
 version = "0.3.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -639,7 +654,7 @@ dependencies = [
  "async-process",
  "bindgen",
  "data-encoding",
- "futures-lite",
+ "futures-lite 2.0.0",
  "pkg-config",
  "scopeguard",
  "serde_json",
