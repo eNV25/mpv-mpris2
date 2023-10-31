@@ -1,6 +1,6 @@
 [package]
 name = "mpv-mpris2"
-version = "0.0.1-alpha14"
+version = "0.0.1"
 edition = "2021"
 
 [lib]
@@ -13,6 +13,8 @@ lto = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+_unused1 = { version = "=1.7", package = "async-process" } # prevent duplicate event-listener
+_unused2 = { version = "=0.2.4", package = "async-signal" } # prevent duplicate async-io
 anyhow = "1"
 data-encoding = "2"
 scopeguard = "1"
