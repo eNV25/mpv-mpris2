@@ -21,6 +21,9 @@ default:
 build *args="":
 	cargo build {{args}}
 
+dups:
+	rg '.*"(.*) (.*)".*' -r '$1 v$2' Cargo.lock | sort -u
+
 install: (build "--release")
 	install -v -D target/release/libmpv_mpris2.so "${prefix}/lib/mpv-mpris2/mpris.so"
 	strip --strip-unneeded "${prefix}/lib/mpv-mpris2/mpris.so"
