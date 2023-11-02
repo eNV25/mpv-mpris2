@@ -16,3 +16,11 @@ Pre-build binary is available in GitHub.
 
 Any other implementations of the MPRIS API (like [hoyon/mpv-mpris](https://github.com/hoyon/mpv-mpris)) must be uninstalled.
 
+### Building from source
+
+```
+$ git clone https://github.com/eNV25/mpv-mpris2
+$ rustup default stable
+$ cargo build --release
+$ install -v target/release/libmpv_mpris.so ~/.config/mpv/scripts/mpris.so
+```
