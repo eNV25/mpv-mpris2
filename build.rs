@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         .constified_enum(MPV_SYMBOLS)
         .prepend_enum_name(false)
         .opaque_type("mpv_handle")
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()?
         .write_to_file(output)?;
     Ok(())
