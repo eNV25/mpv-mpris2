@@ -15,15 +15,14 @@ jobs:
     steps:
       - run: sudo apt-get update
       - run: sudo apt-get install libmpv-dev
-      - run: rustup default stable
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       - uses: actions/cache@v3
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/
             ~/.cargo/git/
+            ~/.rustup/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: |
