@@ -41,6 +41,7 @@ pub extern "C" fn mpv_open_cplugin(mpv: MPVHandle) -> c_int {
             .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
             .serve_at(path, crate::mpris2::Root(mpv))?
             .serve_at(path, crate::mpris2::Player(mpv))?
+            .internal_executor(false)
             .build()
             .block()?;
         let executor = connection.executor().clone();
