@@ -22,11 +22,11 @@ use crate::Block;
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct Root(pub crate::Handle);
+pub struct Root(pub crate::MPVHandle);
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct Player(pub crate::Handle);
+pub struct Player(pub crate::MPVHandle);
 
 impl From<Root> for *mut crate::mpv_handle {
     #[inline]
@@ -289,19 +289,19 @@ impl Player {
 }
 
 pub fn playback_status_from(
-    ctx: crate::Handle,
+    mpv: crate::MPVHandle,
     idle_active: Option<bool>,
     eof_reached: Option<bool>,
     pause: Option<bool>,
 ) -> fdo::Result<&'static str> {
     let idle_active = idle_active.ok_or(());
-    if idle_active.or_else(|()| get!(ctx, "idle-active", bool))?
+    if idle_active.or_else(|()| get!(mpv, "idle-active", bool))?
         || eof_reached
-            .or_else(|| get!(ctx, "eof-reached", bool).ok())
+            .or_else(|| get!(mpv, "eof-reached", bool).ok())
             .unwrap_or(false)
     {
         Ok("Stopped")
-    } else if pause.ok_or(()).or_else(|()| get!(ctx, "pause", bool))? {
+    } else if pause.ok_or(()).or_else(|()| get!(mpv, "pause", bool))? {
         Ok("Paused")
     } else {
         Ok("Playing")
@@ -309,13 +309,13 @@ pub fn playback_status_from(
 }
 
 pub fn loop_status_from(
-    ctx: crate::Handle,
+    mpv: crate::MPVHandle,
     loop_file: Option<bool>,
     loop_playlist: Option<bool>,
 ) -> fdo::Result<&'static str> {
     let err = || fdo::Error::Failed("cannot get property".into());
-    let loop_file = loop_file.or_else(|| get!(ctx, "loop-file").map(|x| x != "no"));
-    let loop_playlist = loop_playlist.or_else(|| get!(ctx, "loop-playlist").map(|x| x != "no"));
+    let loop_file = loop_file.or_else(|| get!(mpv, "loop-file").map(|x| x != "no"));
+    let loop_playlist = loop_playlist.or_else(|| get!(mpv, "loop-playlist").map(|x| x != "no"));
     if loop_file.ok_or_else(err)? {
         Ok("Track")
     } else if loop_playlist.ok_or_else(err)? {
@@ -325,15 +325,15 @@ pub fn loop_status_from(
     }
 }
 
-pub fn metadata(ctx: crate::Handle) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
+pub fn metadata(mpv: crate::MPVHandle) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
     let mut m = HashMap::new();
 
     m.insert(
         "mpris:length",
-        time_from_secs(get!(ctx, "duration", f64)?).into(),
+        time_from_secs(get!(mpv, "duration", f64)?).into(),
     );
 
-    if let Some(data) = get!(ctx, "metadata") {
+    if let Some(data) = get!(mpv, "metadata") {
         let data: HashMap<&str, String> =
             serde_json::from_str(&data).map_err(|err| fdo::Error::Failed(err.to_string()))?;
         for (key, value) in data {
@@ -364,7 +364,7 @@ pub fn metadata(ctx: crate::Handle) -> fdo::Result<HashMap<&'static str, Value<'
     }
 
     if let hash_map::Entry::Vacant(v) = m.entry("xesam:title") {
-        if let Some(value) = get!(ctx, "media-title") {
+        if let Some(value) = get!(mpv, "media-title") {
             v.insert(value.into());
         }
     }
@@ -376,24 +376,24 @@ pub fn metadata(ctx: crate::Handle) -> fdo::Result<HashMap<&'static str, Value<'
             .into(),
     );
 
-    let path = get!(ctx, "path").unwrap_or_default();
+    let path = get!(mpv, "path").unwrap_or_default();
     if let Some(url) = Url::parse(&path).ok().or_else(|| {
-        get!(ctx, "working-directory")
+        get!(mpv, "working-directory")
             .and_then(|dir| Url::from_file_path(Path::new(&dir).join(&path)).ok())
     }) {
         m.insert("mpris:url", String::from(url).into());
     }
 
-    if let Some(url) = thumbnail(ctx) {
+    if let Some(url) = thumbnail(mpv) {
         m.insert("mpris:artUrl", url.into());
     }
 
     Ok(m)
 }
 
-fn thumbnail(ctx: crate::Handle) -> Option<String> {
-    let path = get!(ctx, "path").unwrap_or_default();
-    if path == get!(ctx, "stream-open-filename").unwrap_or_default() {
+fn thumbnail(mpv: crate::MPVHandle) -> Option<String> {
+    let path = get!(mpv, "path").unwrap_or_default();
+    if path == get!(mpv, "stream-open-filename").unwrap_or_default() {
         Command::new("ffmpegthumbnailer")
             .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
             .arg(&path)
@@ -403,7 +403,7 @@ fn thumbnail(ctx: crate::Handle) -> Option<String> {
                 Timer::after(Duration::from_secs(1)).await;
                 Err(io::ErrorKind::TimedOut.into())
             })
-            .block_io()
+            .block()
             .ok()
             .map(|output| BASE64.encode(&output.stdout))
             .map(|data| format!("data:image/jpeg;base64,{data}"))
@@ -420,7 +420,7 @@ fn thumbnail(ctx: crate::Handle) -> Option<String> {
                         Timer::after(Duration::from_secs(5)).await;
                         Err(io::ErrorKind::TimedOut.into())
                     })
-                    .block_io()
+                    .block()
                     .ok()
                     .map(|output| String::from_utf8(output.stdout).unwrap_or_default())
                     .map(truncate_newline)

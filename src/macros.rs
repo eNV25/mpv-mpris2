@@ -11,9 +11,9 @@ macro_rules! strc {
 }
 
 macro_rules! command {
-    ($ctx:ident, $($arg:expr),+ $(,)?) => {{
+    ($mpv:ident, $($arg:expr),+ $(,)?) => {{
         let args = [$(strc!($arg)),+, std::ptr::null()];
-        match unsafe { $crate::mpv_command($ctx.into(), std::ptr::addr_of!(args).cast_mut().cast()) } {
+        match unsafe { $crate::mpv_command($mpv.into(), std::ptr::addr_of!(args).cast_mut().cast()) } {
             0.. => Ok(()),
             error => Err($crate::Error(error.into())),
         }
@@ -21,26 +21,26 @@ macro_rules! command {
 }
 
 macro_rules! get {
-    ($ctx:ident, $prop:literal) => {
-        get!($ctx, $prop, MPV_FORMAT_STRING)
+    ($mpv:ident, $prop:literal) => {
+        get!($mpv, $prop, MPV_FORMAT_STRING)
     };
-    ($ctx:ident, $prop:literal, bool) => {
-        get!($ctx, $prop, MPV_FORMAT_FLAG).map(|x| x != 0)
+    ($mpv:ident, $prop:literal, bool) => {
+        get!($mpv, $prop, MPV_FORMAT_FLAG).map(|x| x != 0)
     };
-    ($ctx:ident, $prop:literal, i64) => {
-        get!($ctx, $prop, MPV_FORMAT_INT64)
+    ($mpv:ident, $prop:literal, i64) => {
+        get!($mpv, $prop, MPV_FORMAT_INT64)
     };
-    ($ctx:ident, $prop:literal, f64) => {
-        get!($ctx, $prop, MPV_FORMAT_DOUBLE)
+    ($mpv:ident, $prop:literal, f64) => {
+        get!($mpv, $prop, MPV_FORMAT_DOUBLE)
     };
-    ($ctx:ident, $prop:literal, MPV_FORMAT_STRING) => {
-        unsafe { $crate::mpv_get_property_string($ctx.into(), strc!($prop)).as_ref() }
+    ($mpv:ident, $prop:literal, MPV_FORMAT_STRING) => {
+        unsafe { $crate::mpv_get_property_string($mpv.into(), strc!($prop)).as_ref() }
             .and_then(|s| $crate::Str::try_from(s).ok())
             .map(|s| String::from(&*s))
     };
-    ($ctx:ident, $prop:literal, MPV_FORMAT_OSD_STRING) => {
+    ($mpv:ident, $prop:literal, MPV_FORMAT_OSD_STRING) => {
         get!(
-            $ctx,
+            $mpv,
             $prop,
             MPV_FORMAT_OSD_STRING,
             std::ptr::null::<std::ffi::c_char>()
@@ -50,20 +50,20 @@ macro_rules! get {
         .and_then(|s| $crate::Str::try_from(s).ok())
         .map(String::from)
     };
-    ($ctx:ident, $prop:literal, MPV_FORMAT_FLAG) => {
-        get!($ctx, $prop, MPV_FORMAT_FLAG, std::ffi::c_int::default())
+    ($mpv:ident, $prop:literal, MPV_FORMAT_FLAG) => {
+        get!($mpv, $prop, MPV_FORMAT_FLAG, std::ffi::c_int::default())
     };
-    ($ctx:ident, $prop:literal, MPV_FORMAT_INT64) => {
-        get!($ctx, $prop, MPV_FORMAT_INT64, i64::default())
+    ($mpv:ident, $prop:literal, MPV_FORMAT_INT64) => {
+        get!($mpv, $prop, MPV_FORMAT_INT64, i64::default())
     };
-    ($ctx:ident, $prop:literal, MPV_FORMAT_DOUBLE) => {
-        get!($ctx, $prop, MPV_FORMAT_DOUBLE, f64::default())
+    ($mpv:ident, $prop:literal, MPV_FORMAT_DOUBLE) => {
+        get!($mpv, $prop, MPV_FORMAT_DOUBLE, f64::default())
     };
-    ($ctx:ident, $prop:literal, $format:ident, $default:expr) => {{
+    ($mpv:ident, $prop:literal, $format:ident, $default:expr) => {{
         let mut data = $default;
         match unsafe {
             $crate::mpv_get_property(
-                $ctx.into(),
+                $mpv.into(),
                 strc!($prop),
                 $crate::$format,
                 std::ptr::addr_of_mut!(data).cast(),
@@ -76,23 +76,23 @@ macro_rules! get {
 }
 
 macro_rules! set {
-    ($ctx:ident, $prop:literal, $data:expr) => {
-        set!($ctx, $prop, MPV_FORMAT_STRING, strc!($data))
+    ($mpv:ident, $prop:literal, $data:expr) => {
+        set!($mpv, $prop, MPV_FORMAT_STRING, strc!($data))
     };
-    ($ctx:ident, $prop:literal, bool, $data:expr) => {
-        set!($ctx, $prop, MPV_FORMAT_FLAG, $data as std::ffi::c_int)
+    ($mpv:ident, $prop:literal, bool, $data:expr) => {
+        set!($mpv, $prop, MPV_FORMAT_FLAG, $data as std::ffi::c_int)
     };
-    ($ctx:ident, $prop:literal, i64, $data:expr) => {
-        set!($ctx, $prop, MPV_FORMAT_INT64, $data as i64)
+    ($mpv:ident, $prop:literal, i64, $data:expr) => {
+        set!($mpv, $prop, MPV_FORMAT_INT64, $data as i64)
     };
-    ($ctx:ident, $prop:literal, f64, $data:expr) => {
-        set!($ctx, $prop, MPV_FORMAT_DOUBLE, $data as f64)
+    ($mpv:ident, $prop:literal, f64, $data:expr) => {
+        set!($mpv, $prop, MPV_FORMAT_DOUBLE, $data as f64)
     };
-    ($ctx:ident, $prop:literal, $format:ident, $data:expr) => {{
+    ($mpv:ident, $prop:literal, $format:ident, $data:expr) => {{
         let data = $data;
         match unsafe {
             $crate::mpv_set_property(
-                $ctx.into(),
+                $mpv.into(),
                 strc!($prop),
                 $crate::$format,
                 std::ptr::addr_of!(data).cast_mut().cast(),
@@ -105,17 +105,17 @@ macro_rules! set {
 }
 
 macro_rules! observe {
-    ($ctx:ident, $($prop:literal),+ $(,)?) => {
-        $(observe!($ctx, 0, $prop, MPV_FORMAT_NONE));+
+    ($mpv:ident, $($prop:literal),+ $(,)?) => {
+        $(observe!($mpv, 0, $prop, MPV_FORMAT_NONE));+
     };
-    ($ctx:ident, $format:ident, $($prop:literal),+ $(,)?) => {
-        $(observe!($ctx, 0, $prop, $format));+
+    ($mpv:ident, $format:ident, $($prop:literal),+ $(,)?) => {
+        $(observe!($mpv, 0, $prop, $format));+
     };
-    ($ctx:ident, $userdata:expr, $prop:literal, $format:ident) => {{
+    ($mpv:ident, $userdata:expr, $prop:literal, $format:ident) => {{
         let userdata = $userdata;
         unsafe {
             $crate::mpv_observe_property(
-                $ctx.into(),
+                $mpv.into(),
                 userdata,
                 strc!($prop),
                 $crate::$format,

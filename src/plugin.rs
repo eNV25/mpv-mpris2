@@ -4,10 +4,9 @@
 #![warn(clippy::pedantic)]
 #![allow(special_module_name)]
 
-use std::process;
-use std::{collections::HashMap, ffi::c_int, iter};
+use std::{collections::HashMap, ffi::c_int, iter, process};
 
-use zbus::{blocking::ConnectionBuilder, zvariant::Value, Interface, SignalContext};
+use zbus::zvariant;
 
 #[allow(clippy::wildcard_imports)]
 use crate::ffi::*;
@@ -27,43 +26,53 @@ macro_rules! cstr {
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
-pub extern "C" fn mpv_open_cplugin(ctx: *mut mpv_handle) -> c_int {
-    if ctx.is_null() {
+pub extern "C" fn mpv_open_cplugin(mpv: MPVHandle) -> c_int {
+    if mpv.0.is_null() {
         return 1;
     }
-    let script = unsafe { cstr!(mpv_client_name(ctx)) };
-    match plugin(Handle(ctx), script) {
-        Ok(()) => 0,
+
+    let name = unsafe { cstr!(mpv_client_name(mpv.0)) };
+
+    // try blocks are not stable yet, ugh
+    let ctxt = match (|| {
+        let path = "/org/mpris/MediaPlayer2";
+        let pid = process::id();
+        let connection = zbus::blocking::ConnectionBuilder::session()?
+            .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
+            .serve_at(path, crate::mpris2::Root(mpv))?
+            .serve_at(path, crate::mpris2::Player(mpv))?
+            .build()?;
+        zbus::Result::Ok(zbus::SignalContext::from_parts(
+            connection.into_inner(),
+            path.try_into()?,
+        ))
+    })() {
+        Ok(ctxt) => ctxt,
         Err(err) => {
-            eprintln!("[{script}] {err:?}");
-            1
+            eprintln!("[{name}]: {err}");
+            return 1;
         }
+    };
+
+    observe_properties(mpv);
+
+    main_loop(mpv, &ctxt, name);
+
+    0
+}
+
+fn main_loop(mpv: MPVHandle, ctxt: &zbus::SignalContext, name: &str) {
+    macro_rules! data {
+        ($source:expr, bool) => {
+            data!($source, std::ffi::c_int) != 0
+        };
+        ($source:expr, &str) => {
+            cstr!(*$source.data.cast())
+        };
+        ($source:expr, $type:ty) => {
+            *$source.data.cast::<$type>()
+        };
     }
-}
-
-macro_rules! data {
-    ($source:expr, bool) => {
-        data!($source, std::ffi::c_int) != 0
-    };
-    ($source:expr, &str) => {
-        cstr!(*$source.data.cast())
-    };
-    ($source:expr, $type:ty) => {
-        *$source.data.cast::<$type>()
-    };
-}
-
-fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
-    let path = "/org/mpris/MediaPlayer2";
-    let pid = process::id();
-    let connection = ConnectionBuilder::session()?
-        .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
-        .serve_at(path, crate::mpris2::Root(ctx))?
-        .serve_at(path, crate::mpris2::Player(ctx))?
-        .build()?;
-    let connection = SignalContext::from_parts(connection.into_inner(), path.try_into()?);
-
-    observe_properties(ctx);
 
     let elog = |err| eprintln!("[{name}] {err:?}");
 
@@ -75,7 +84,7 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
         let mut state = scopeguard::guard(
             (State::default(), &mut root, &mut player),
             |(state, root, player)| {
-                signal_changed(ctx, state, &connection, root, player)
+                signal_changed(mpv, state, ctxt, root, player)
                     .for_each(|err| err.unwrap_or_else(elog));
             },
         );
@@ -83,16 +92,16 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
 
         for ev in iter::once(-1.0)
             .chain(iter::repeat(0.0))
-            .map(|timeout| unsafe { *mpv_wait_event(ctx.into(), timeout) })
+            .map(|timeout| unsafe { *mpv_wait_event(mpv.into(), timeout) })
         {
             match ev.event_id {
                 MPV_EVENT_NONE => break,
-                MPV_EVENT_SHUTDOWN => return Ok(()),
+                MPV_EVENT_SHUTDOWN => return,
                 MPV_EVENT_SEEK => seeking = true,
                 MPV_EVENT_PLAYBACK_RESTART if seeking => {
                     seeking = false;
-                    if let Ok(position) = get!(ctx, "playback-time", f64) {
-                        seeked(&connection, mpris2::time_from_secs(position)).unwrap_or_else(elog);
+                    if let Ok(position) = get!(mpv, "playback-time", f64) {
+                        seeked(ctxt, mpris2::time_from_secs(position)).unwrap_or_else(elog);
                     }
                 }
                 MPV_EVENT_PROPERTY_CHANGE => {
@@ -103,9 +112,8 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
                             state.metadata = true;
                         }
                         ("keep-open", MPV_FORMAT_STRING) => {
-                            let value = unsafe { cstr!(*prop.data.cast()) } != "no";
-                            keep_open = value;
-                            state.keep_open = Some(value);
+                            keep_open = unsafe { data!(prop, &str) } != "no";
+                            state.keep_open = Some(keep_open);
                         }
                         ("loop-file", MPV_FORMAT_STRING) => {
                             state.loop_file = Some(unsafe { data!(prop, &str) } != "no");
@@ -150,10 +158,10 @@ fn plugin(ctx: Handle, name: &str) -> anyhow::Result<()> {
 // These properties and those handled in the main loop must be kept in sync with those
 // mentioned in the interface implementations.
 // It's a bit of a pain in the ass but there's no other way.
-fn observe_properties(ctx: Handle) {
-    observe!(ctx, "media-title", "metadata", "duration");
+fn observe_properties(mpv: MPVHandle) {
+    observe!(mpv, "media-title", "metadata", "duration");
     observe!(
-        ctx,
+        mpv,
         MPV_FORMAT_FLAG,
         "fullscreen",
         "seekable",
@@ -163,13 +171,13 @@ fn observe_properties(ctx: Handle) {
         "shuffle",
     );
     observe!(
-        ctx,
+        mpv,
         MPV_FORMAT_STRING,
         "keep-open",
         "loop-file",
         "loop-playlist",
     );
-    observe!(ctx, MPV_FORMAT_DOUBLE, "speed", "volume");
+    observe!(mpv, MPV_FORMAT_DOUBLE, "speed", "volume");
 }
 
 #[derive(Clone, Default)]
@@ -184,7 +192,7 @@ struct State {
 }
 
 impl State {
-    fn playback_status(&mut self, ctx: Handle) -> Option<Value<'static>> {
+    fn playback_status(&mut self, mpv: MPVHandle) -> Option<zvariant::Value<'static>> {
         if self.idle_active.is_some()
             | self.keep_open.is_some()
             | self.eof_reached.is_some()
@@ -192,7 +200,7 @@ impl State {
         {
             self.keep_open.take();
             mpris2::playback_status_from(
-                ctx,
+                mpv,
                 self.idle_active.take(),
                 self.eof_reached.take(),
                 self.pause.take(),
@@ -203,18 +211,18 @@ impl State {
             None
         }
     }
-    fn loop_status(&mut self, ctx: Handle) -> Option<Value<'static>> {
+    fn loop_status(&mut self, mpv: MPVHandle) -> Option<zvariant::Value<'static>> {
         if self.loop_file.is_some() | self.loop_playlist.is_some() {
-            mpris2::loop_status_from(ctx, self.loop_file.take(), self.loop_playlist.take())
+            mpris2::loop_status_from(mpv, self.loop_file.take(), self.loop_playlist.take())
                 .ok()
                 .map(Into::into)
         } else {
             None
         }
     }
-    fn metadata(&mut self, ctx: Handle) -> Option<Value<'static>> {
+    fn metadata(&mut self, mpv: MPVHandle) -> Option<zvariant::Value<'static>> {
         if self.metadata {
-            mpris2::metadata(ctx).ok().map(Into::into)
+            mpris2::metadata(mpv).ok().map(Into::into)
         } else {
             None
         }
@@ -222,15 +230,15 @@ impl State {
 }
 
 fn signal_changed(
-    ctx: Handle,
+    mpv: MPVHandle,
     mut state: State,
-    ctxt: &SignalContext<'_>,
-    root: &mut Vec<(&str, Value<'_>)>,
-    player: &mut Vec<(&str, Value<'_>)>,
+    ctxt: &zbus::SignalContext<'_>,
+    root: &mut Vec<(&str, zvariant::Value<'_>)>,
+    player: &mut Vec<(&str, zvariant::Value<'_>)>,
 ) -> impl Iterator<Item = zbus::Result<()>> {
-    let playback_status = state.playback_status(ctx);
-    let loop_status = state.loop_status(ctx);
-    let metadata = state.metadata(ctx);
+    let playback_status = state.playback_status(mpv);
+    let loop_status = state.loop_status(mpv);
+    let metadata = state.metadata(mpv);
 
     let (root, player) = (root.drain(..), player.drain(..));
     let root: HashMap<_, _> = root.as_slice().iter().map(|(k, v)| (*k, v)).collect();
@@ -245,8 +253,7 @@ fn signal_changed(
         player.insert("Metadata", value);
     }
 
-    let root = (!root.is_empty()).then(|| properties_changed(ctxt, mpris2::Root::name(), &root));
-    let player =
-        (!player.is_empty()).then(|| properties_changed(ctxt, mpris2::Player::name(), &player));
+    let root = (!root.is_empty()).then(|| properties_changed::<mpris2::Root>(ctxt, &root));
+    let player = (!player.is_empty()).then(|| properties_changed::<mpris2::Player>(ctxt, &player));
     root.into_iter().chain(player)
 }

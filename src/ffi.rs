@@ -7,13 +7,13 @@ include!(concat!(env!("OUT_DIR"), "/ffi.rs"));
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct Handle(pub *mut mpv_handle);
-unsafe impl Send for Handle {}
-unsafe impl Sync for Handle {}
+pub struct MPVHandle(pub *mut mpv_handle);
+unsafe impl Send for MPVHandle {}
+unsafe impl Sync for MPVHandle {}
 
-impl From<Handle> for *mut mpv_handle {
+impl From<MPVHandle> for *mut mpv_handle {
     #[inline]
-    fn from(value: Handle) -> Self {
+    fn from(value: MPVHandle) -> Self {
         value.0
     }
 }
