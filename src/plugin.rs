@@ -4,7 +4,7 @@
 #![warn(clippy::pedantic)]
 #![allow(special_module_name)]
 
-use std::{collections::HashMap, ffi::c_int, iter, process};
+use std::{collections::HashMap, ffi::c_int, iter, process, thread};
 
 use zbus::zvariant;
 
@@ -37,13 +37,25 @@ pub extern "C" fn mpv_open_cplugin(mpv: MPVHandle) -> c_int {
     let ctxt = match (|| {
         let path = "/org/mpris/MediaPlayer2";
         let pid = process::id();
-        let connection = zbus::blocking::ConnectionBuilder::session()?
+        let connection = zbus::ConnectionBuilder::session()?
             .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
             .serve_at(path, crate::mpris2::Root(mpv))?
             .serve_at(path, crate::mpris2::Player(mpv))?
-            .build()?;
+            .build()
+            .block()?;
+        let executor = connection.executor().clone();
+        thread::Builder::new()
+            .name("mpv/mpris/zbus".into())
+            .spawn(move || {
+                async {
+                    while !executor.is_empty() {
+                        executor.tick().await;
+                    }
+                }
+                .block();
+            })?;
         zbus::Result::Ok(zbus::SignalContext::from_parts(
-            connection.into_inner(),
+            connection,
             path.try_into()?,
         ))
     })() {
