@@ -35,12 +35,16 @@ pub extern "C" fn mpv_open_cplugin(mpv: MPVHandle) -> c_int {
 
     // try blocks are not stable yet, ugh
     let ctxt = match (|| {
-        let path = "/org/mpris/MediaPlayer2";
+        use zbus::names::WellKnownName;
+        use zvariant::ObjectPath;
+        const PATH_STR: &str = "/org/mpris/MediaPlayer2";
+        const PATH: ObjectPath<'_> = ObjectPath::from_static_str_unchecked(PATH_STR);
         let pid = process::id();
+        let name = format!("org.mpris.MediaPlayer2.mpv.instance{pid}");
         let connection = zbus::ConnectionBuilder::session()?
-            .name(format!("org.mpris.MediaPlayer2.mpv.instance{pid}"))?
-            .serve_at(path, crate::mpris2::Root(mpv))?
-            .serve_at(path, crate::mpris2::Player(mpv))?
+            .name(WellKnownName::from_string_unchecked(name))?
+            .serve_at(PATH, crate::mpris2::Root(mpv))?
+            .serve_at(PATH, crate::mpris2::Player(mpv))?
             .internal_executor(false)
             .build()
             .block()?;
@@ -55,10 +59,7 @@ pub extern "C" fn mpv_open_cplugin(mpv: MPVHandle) -> c_int {
                 }
                 .block();
             })?;
-        zbus::Result::Ok(zbus::SignalContext::from_parts(
-            connection,
-            path.try_into()?,
-        ))
+        zbus::Result::Ok(zbus::SignalContext::from_parts(connection, PATH))
     })() {
         Ok(ctxt) => ctxt,
         Err(err) => {
