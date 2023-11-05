@@ -405,8 +405,14 @@ fn thumbnail(mpv: crate::MPVHandle) -> Option<String> {
             })
             .block()
             .ok()
-            .map(|output| BASE64.encode(&output.stdout))
-            .map(|data| format!("data:image/jpeg;base64,{data}"))
+            .map(|output| {
+                const PREFIX: &str = "data:image/jpeg;base64,";
+                let len = PREFIX.len() + BASE64.encode_len(output.stdout.len());
+                let mut data = String::with_capacity(len);
+                data.push_str(PREFIX);
+                BASE64.encode_append(&output.stdout, &mut data);
+                data
+            })
     } else {
         ["yt-dlp", "yt-dlp_x86", "youtube-dl"]
             .into_iter()
