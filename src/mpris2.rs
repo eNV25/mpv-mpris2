@@ -428,10 +428,11 @@ fn thumbnail(mpv: crate::MPVHandle) -> Option<String> {
                     })
                     .block()
                     .ok()
-                    .map(|output| String::from_utf8(output.stdout).unwrap_or_default())
+                    .and_then(|output| String::from_utf8(output.stdout).ok())
                     .map(truncate_newline)
             })
     }
+    .filter(|url| Url::parse(url).is_ok())
 }
 
 fn truncate_newline(mut s: String) -> String {
