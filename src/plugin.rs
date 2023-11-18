@@ -2,7 +2,6 @@
 #![warn(clippy::complexity)]
 #![warn(clippy::perf)]
 #![warn(clippy::pedantic)]
-#![allow(special_module_name)]
 
 use std::{collections::HashMap, ffi::c_int, iter, process, thread};
 
@@ -11,10 +10,10 @@ use zbus::zvariant;
 #[allow(clippy::wildcard_imports)]
 use crate::ffi::*;
 #[allow(clippy::wildcard_imports)]
-use crate::lib::*;
+use crate::llb::*;
 
 mod ffi;
-mod lib;
+mod llb;
 mod macros;
 mod mpris2;
 
@@ -31,7 +30,7 @@ pub extern "C" fn mpv_open_cplugin(mpv: MPVHandle) -> c_int {
         return 1;
     }
 
-    let name = unsafe { cstr!(mpv_client_name(mpv.0)) };
+    let name = unsafe { cstr!(mpv_client_name(mpv.into())) };
 
     // try blocks are not stable yet, ugh
     let ctxt = match (|| {
@@ -52,7 +51,7 @@ pub extern "C" fn mpv_open_cplugin(mpv: MPVHandle) -> c_int {
         thread::Builder::new()
             .name("mpv/mpris/zbus".into())
             .spawn(move || {
-                async {
+                async move {
                     while !executor.is_empty() {
                         executor.tick().await;
                     }
