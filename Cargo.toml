@@ -1,6 +1,6 @@
 [package]
 name = "mpv-mpris2"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 
 [lib]
@@ -14,7 +14,8 @@ lto = true
 
 [dependencies]
 _unused1 = { version = "=1.7", package = "async-process" } # prevent duplicate event-listener
-_unused2 = { version = "=0.2.4", package = "async-signal" } # prevent duplicate async-io
+_unused2 = { version = "=1.4.1", package = "blocking" } # prevent duplicate async-channel
+_unused3 = { version = "=1.6.0", package = "async-executor" } # prevent duplicate async-lock
 data-encoding = "2"
 scopeguard = "1"
 serde_json = "1"
