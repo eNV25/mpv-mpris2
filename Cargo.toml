@@ -19,7 +19,7 @@ _unused3 = { version = "=1.6.0", package = "async-executor" } # prevent duplicat
 data-encoding = "2"
 scopeguard = "1"
 serde_json = "1"
-smol = "1"
+smol = "2"
 url = "2"
 zbus = "3"
 
