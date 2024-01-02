@@ -40,7 +40,7 @@ pub extern "C" fn mpv_open_cplugin(mpv: MPVHandle) -> c_int {
         const PATH: ObjectPath<'_> = ObjectPath::from_static_str_unchecked(PATH_STR);
         let pid = process::id();
         let name = format!("org.mpris.MediaPlayer2.mpv.instance{pid}");
-        let connection = zbus::ConnectionBuilder::session()?
+        let connection = zbus::connection::Builder::session()?
             .name(WellKnownName::from_string_unchecked(name))?
             .serve_at(PATH, crate::mpris2::Root(mpv))?
             .serve_at(PATH, crate::mpris2::Player(mpv))?
@@ -58,7 +58,8 @@ pub extern "C" fn mpv_open_cplugin(mpv: MPVHandle) -> c_int {
                 }
                 .block();
             })?;
-        zbus::Result::Ok(zbus::SignalContext::from_parts(connection, PATH))
+        let connection = zbus::object_server::SignalContext::from_parts(connection, PATH);
+        zbus::Result::Ok(connection)
     })() {
         Ok(ctxt) => ctxt,
         Err(err) => {
@@ -74,7 +75,7 @@ pub extern "C" fn mpv_open_cplugin(mpv: MPVHandle) -> c_int {
     0
 }
 
-fn main_loop(mpv: MPVHandle, ctxt: &zbus::SignalContext, name: &str) {
+fn main_loop(mpv: MPVHandle, ctxt: &zbus::object_server::SignalContext, name: &str) {
     macro_rules! data {
         ($source:expr, bool) => {
             data!($source, std::ffi::c_int) != 0
@@ -245,7 +246,7 @@ impl State {
 fn signal_changed(
     mpv: MPVHandle,
     mut state: State,
-    ctxt: &zbus::SignalContext<'_>,
+    ctxt: &zbus::object_server::SignalContext<'_>,
     root: &mut Vec<(&str, zvariant::Value<'_>)>,
     player: &mut Vec<(&str, zvariant::Value<'_>)>,
 ) -> impl Iterator<Item = zbus::Result<()>> {

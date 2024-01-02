@@ -1,4 +1,4 @@
-#![allow(clippy::ignored_unit_patterns)] // for dbus_interface macro
+#![allow(clippy::ignored_unit_patterns)] // for interface macro
 
 use std::{
     collections::{hash_map, HashMap},
@@ -13,9 +13,9 @@ use data_encoding::BASE64;
 use smol::{future::FutureExt, process::Command, Timer};
 use url::Url;
 use zbus::{
-    dbus_interface, fdo,
+    interface, fdo,
+    object_server::SignalContext,
     zvariant::{ObjectPath, Value},
-    SignalContext,
 };
 
 use crate::Block;
@@ -52,19 +52,19 @@ pub fn time_from_secs(secs: f64) -> i64 {
 }
 
 #[allow(clippy::unused_self)]
-#[dbus_interface(name = "org.mpris.MediaPlayer2")]
+#[interface(name = "org.mpris.MediaPlayer2")]
 impl Root {
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn desktop_entry(self) -> &'static str {
         "mpv"
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn identity(self) -> &'static str {
         "mpv Media Player"
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn supported_mime_types(self) -> Vec<String> {
         env::var("XDG_DATA_DIRS")
             .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_owned())
@@ -86,14 +86,14 @@ impl Root {
             .unwrap_or_default()
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn supported_uri_schemes(self) -> fdo::Result<Vec<String>> {
         get!(self, "protocol-list")
             .ok_or_else(|| fdo::Error::Failed("cannot get protocol-list".into()))
             .map(|x| x.split(',').map(str::to_owned).collect())
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn can_quit(self) -> bool {
         true
     }
@@ -102,38 +102,38 @@ impl Root {
         Ok(command!(self, "quit")?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn can_raise(self) -> bool {
         false
     }
 
     //fn raise(self) {}
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn can_set_fullscreen(self) -> bool {
         true
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn fullscreen(self) -> fdo::Result<bool> {
         Ok(get!(self, "fullscreen", bool)?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn set_fullscreen(self, fullscreen: bool) -> zbus::Result<()> {
         Ok(set!(self, "fullscreen", bool, fullscreen)?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn has_track_list(self) -> bool {
         false
     }
 }
 
 #[allow(clippy::unused_self)]
-#[dbus_interface(name = "org.mpris.MediaPlayer2.Player")]
+#[interface(name = "org.mpris.MediaPlayer2.Player")]
 impl Player {
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn can_go_next(self) -> bool {
         true
     }
@@ -142,7 +142,7 @@ impl Player {
         Ok(command!(self, "playlist-next")?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn can_go_previous(self) -> bool {
         true
     }
@@ -151,7 +151,7 @@ impl Player {
         Ok(command!(self, "playlist-prev")?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn can_pause(self) -> bool {
         true
     }
@@ -164,7 +164,7 @@ impl Player {
         Ok(command!(self, "cycle", "pause")?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn can_play(self) -> bool {
         true
     }
@@ -173,7 +173,7 @@ impl Player {
         Ok(set!(self, "pause", bool, false)?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn can_seek(self) -> fdo::Result<bool> {
         Ok(get!(self, "seekable", bool)?)
     }
@@ -183,7 +183,7 @@ impl Player {
         Ok(command!(self, "seek", offset.as_str())?)
     }
 
-    #[dbus_interface(signal)]
+    #[zbus(signal)]
     pub async fn seeked(ctxt: &SignalContext<'_>, position: i64) -> zbus::Result<()>;
 
     fn open_uri(self, mut uri: String) -> fdo::Result<()> {
@@ -191,7 +191,7 @@ impl Player {
         Ok(command!(self, "loadfile", uri.as_str())?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn can_control(self) -> bool {
         true
     }
@@ -200,17 +200,17 @@ impl Player {
         Ok(command!(self, "stop")?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn playback_status(self) -> fdo::Result<&'static str> {
         playback_status_from(self.0, None, None, None)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn loop_status(self) -> fdo::Result<&'static str> {
         loop_status_from(self.0, None, None)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn set_loop_status(self, loop_status: &str) -> zbus::Result<()> {
         set!(
             self,
@@ -231,52 +231,52 @@ impl Player {
         Ok(())
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn rate(self) -> fdo::Result<f64> {
         Ok(get!(self, "speed", f64)?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn set_rate(self, rate: f64) -> zbus::Result<()> {
         Ok(set!(self, "speed", f64, rate)?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn minimum_rate(self) -> fdo::Result<f64> {
         Ok(get!(self, "option-info/speed/min", f64)?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn maximum_rate(self) -> fdo::Result<f64> {
         Ok(get!(self, "option-info/speed/max", f64)?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn shuffle(self) -> fdo::Result<bool> {
         Ok(get!(self, "shuffle", bool)?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn set_shuffle(self, shuffle: bool) -> zbus::Result<()> {
         Ok(set!(self, "shuffle", bool, shuffle)?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     pub fn metadata(self) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
         metadata(self.0)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn volume(self) -> fdo::Result<f64> {
         Ok(get!(self, "volume", f64)? / 100.0)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn set_volume(self, volume: f64) -> zbus::Result<()> {
         Ok(set!(self, "volume", f64, volume * 100.0)?)
     }
 
-    #[dbus_interface(property)]
+    #[zbus(property)]
     fn position(self) -> fdo::Result<i64> {
         Ok(time_from_secs(get!(self, "playback-time", f64)?))
     }

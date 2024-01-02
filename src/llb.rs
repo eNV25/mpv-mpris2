@@ -1,6 +1,6 @@
 use std::{collections::HashMap, future::Future};
 
-use zbus::{fdo, zvariant, SignalContext};
+use zbus::{fdo, zvariant, object_server::SignalContext};
 
 pub trait Block: Sized + Future {
     fn block_lite(self) -> <Self as Future>::Output {
@@ -13,7 +13,7 @@ pub trait Block: Sized + Future {
 
 impl<F: Future> Block for F {}
 
-pub fn properties_changed<I: zbus::Interface>(
+pub fn properties_changed<I: zbus::object_server::Interface>(
     ctxt: &SignalContext<'_>,
     changed_properties: &HashMap<&str, &zvariant::Value<'_>>,
 ) -> zbus::Result<()> {
