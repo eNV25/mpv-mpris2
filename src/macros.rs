@@ -48,7 +48,7 @@ macro_rules! get {
         .ok()
         .and_then(|s| unsafe { s.as_ref() })
         .and_then(|s| $crate::Str::try_from(s).ok())
-        .map(String::from)
+        .map(|s| String::from(&*s))
     };
     ($mpv:ident, $prop:literal, MPV_FORMAT_FLAG) => {
         get!($mpv, $prop, MPV_FORMAT_FLAG, std::ffi::c_int::default())
