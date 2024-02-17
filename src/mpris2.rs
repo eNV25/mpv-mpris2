@@ -13,7 +13,7 @@ use data_encoding::BASE64;
 use smol::{future::FutureExt, process::Command, Timer};
 use url::Url;
 use zbus::{
-    interface, fdo,
+    fdo, interface,
     object_server::SignalContext,
     zvariant::{ObjectPath, Value},
 };

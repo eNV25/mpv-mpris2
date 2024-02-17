@@ -1,6 +1,6 @@
 use std::{collections::HashMap, future::Future};
 
-use zbus::{fdo, zvariant, object_server::SignalContext};
+use zbus::{fdo, object_server::SignalContext, zvariant};
 
 pub trait Block: Sized + Future {
     fn block_lite(self) -> <Self as Future>::Output {

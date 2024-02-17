@@ -1,9 +1,4 @@
-#![warn(clippy::suspicious)]
-#![warn(clippy::complexity)]
-#![warn(clippy::perf)]
-#![warn(clippy::pedantic)]
-
-use std::{collections::HashMap, ffi::c_int, iter, process, thread};
+use std::{collections::HashMap, ffi::c_int, iter, process, thread, vec};
 
 use zbus::zvariant;
 
@@ -23,59 +18,84 @@ macro_rules! cstr {
     };
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
 #[no_mangle]
-pub extern "C" fn mpv_open_cplugin(mpv: MPVHandle) -> c_int {
-    if mpv.0.is_null() {
+pub unsafe extern "C" fn mpv_open_cplugin(mpv: *mut mpv_handle) -> c_int {
+    if mpv.is_null() {
         return 1;
     }
 
-    let name = unsafe { cstr!(mpv_client_name(mpv.into())) };
+    let name = cstr!(mpv_client_name(mpv));
+    let mpv = MPVHandle(mpv);
 
-    // try blocks are not stable yet, ugh
-    let ctxt = match (|| {
-        use zbus::names::WellKnownName;
-        use zvariant::ObjectPath;
-        const PATH_STR: &str = "/org/mpris/MediaPlayer2";
-        const PATH: ObjectPath<'_> = ObjectPath::from_static_str_unchecked(PATH_STR);
-        let pid = process::id();
-        let name = format!("org.mpris.MediaPlayer2.mpv.instance{pid}");
-        let connection = zbus::connection::Builder::session()?
-            .name(WellKnownName::from_string_unchecked(name))?
-            .serve_at(PATH, crate::mpris2::Root(mpv))?
-            .serve_at(PATH, crate::mpris2::Player(mpv))?
-            .internal_executor(false)
-            .build()
-            .block()?;
-        let executor = connection.executor().clone();
-        thread::Builder::new()
-            .name("mpv/mpris/zbus".into())
-            .spawn(move || {
-                async move {
-                    while !executor.is_empty() {
-                        executor.tick().await;
-                    }
-                }
-                .block();
-            })?;
-        let connection = zbus::object_server::SignalContext::from_parts(connection, PATH);
-        zbus::Result::Ok(connection)
-    })() {
-        Ok(ctxt) => ctxt,
+    match init(mpv).as_ref() {
+        Ok(ctxt) => {
+            register(mpv);
+            do_loop(mpv, ctxt, name);
+            0
+        }
         Err(err) => {
             eprintln!("[{name}]: {err}");
-            return 1;
+            1
         }
-    };
-
-    observe_properties(mpv);
-
-    main_loop(mpv, &ctxt, name);
-
-    0
+    }
 }
 
-fn main_loop(mpv: MPVHandle, ctxt: &zbus::object_server::SignalContext, name: &str) {
+fn init(mpv: MPVHandle) -> zbus::Result<zbus::object_server::SignalContext<'static>> {
+    use zbus::names::WellKnownName;
+    use zvariant::ObjectPath;
+    const PATH_STR: &str = "/org/mpris/MediaPlayer2";
+    const PATH: ObjectPath<'_> = ObjectPath::from_static_str_unchecked(PATH_STR);
+    let pid = process::id();
+    let name = format!("org.mpris.MediaPlayer2.mpv.instance{pid}");
+    let connection = zbus::connection::Builder::session()?
+        .name(WellKnownName::from_string_unchecked(name))?
+        .serve_at(PATH, crate::mpris2::Root(mpv))?
+        .serve_at(PATH, crate::mpris2::Player(mpv))?
+        .internal_executor(false)
+        .build()
+        .block()?;
+    let executor = connection.executor().clone();
+    thread::Builder::new()
+        .name("mpv/mpris/zbus".into())
+        .spawn(move || {
+            async move {
+                while !executor.is_empty() {
+                    executor.tick().await;
+                }
+            }
+            .block();
+        })?;
+    let connection = zbus::object_server::SignalContext::from_parts(connection, PATH);
+    Ok(connection)
+}
+
+// These properties and those handled in the main loop must be kept in sync with those
+// mentioned in the interface implementations.
+// It's a bit of a pain in the ass but there's no other way.
+fn register(mpv: MPVHandle) {
+    observe!(mpv, "media-title", "metadata", "duration");
+    observe!(
+        mpv,
+        MPV_FORMAT_STRING,
+        "keep-open",
+        "loop-file",
+        "loop-playlist",
+    );
+    observe!(
+        mpv,
+        MPV_FORMAT_FLAG,
+        "fullscreen",
+        "seekable",
+        "idle-active",
+        "eof-reached",
+        "pause",
+        "shuffle",
+    );
+    observe!(mpv, MPV_FORMAT_DOUBLE, "speed", "volume");
+}
+
+fn do_loop(mpv: MPVHandle, ctxt: &zbus::object_server::SignalContext, name: &str) {
     macro_rules! data {
         ($source:expr, bool) => {
             data!($source, std::ffi::c_int) != 0
@@ -98,7 +118,7 @@ fn main_loop(mpv: MPVHandle, ctxt: &zbus::object_server::SignalContext, name: &s
         let mut state = scopeguard::guard(
             (State::default(), &mut root, &mut player),
             |(state, root, player)| {
-                signal_changed(mpv, state, ctxt, root, player)
+                signal_changed(mpv, state, ctxt, &root.drain(..), &player.drain(..))
                     .for_each(|err| err.unwrap_or_else(elog));
             },
         );
@@ -169,31 +189,6 @@ fn main_loop(mpv: MPVHandle, ctxt: &zbus::object_server::SignalContext, name: &s
     }
 }
 
-// These properties and those handled in the main loop must be kept in sync with those
-// mentioned in the interface implementations.
-// It's a bit of a pain in the ass but there's no other way.
-fn observe_properties(mpv: MPVHandle) {
-    observe!(mpv, "media-title", "metadata", "duration");
-    observe!(
-        mpv,
-        MPV_FORMAT_FLAG,
-        "fullscreen",
-        "seekable",
-        "idle-active",
-        "eof-reached",
-        "pause",
-        "shuffle",
-    );
-    observe!(
-        mpv,
-        MPV_FORMAT_STRING,
-        "keep-open",
-        "loop-file",
-        "loop-playlist",
-    );
-    observe!(mpv, MPV_FORMAT_DOUBLE, "speed", "volume");
-}
-
 #[derive(Clone, Default)]
 struct State {
     idle_active: Option<bool>,
@@ -220,26 +215,26 @@ impl State {
                 self.pause.take(),
             )
             .ok()
-            .map(Into::into)
         } else {
             None
         }
+        .map(Into::into)
     }
     fn loop_status(&mut self, mpv: MPVHandle) -> Option<zvariant::Value<'static>> {
         if self.loop_file.is_some() | self.loop_playlist.is_some() {
-            mpris2::loop_status_from(mpv, self.loop_file.take(), self.loop_playlist.take())
-                .ok()
-                .map(Into::into)
+            mpris2::loop_status_from(mpv, self.loop_file.take(), self.loop_playlist.take()).ok()
         } else {
             None
         }
+        .map(Into::into)
     }
     fn metadata(&mut self, mpv: MPVHandle) -> Option<zvariant::Value<'static>> {
         if self.metadata {
-            mpris2::metadata(mpv).ok().map(Into::into)
+            mpris2::metadata(mpv).ok()
         } else {
             None
         }
+        .map(Into::into)
     }
 }
 
@@ -247,23 +242,22 @@ fn signal_changed(
     mpv: MPVHandle,
     mut state: State,
     ctxt: &zbus::object_server::SignalContext<'_>,
-    root: &mut Vec<(&str, zvariant::Value<'_>)>,
-    player: &mut Vec<(&str, zvariant::Value<'_>)>,
+    root: &vec::Drain<(&str, zvariant::Value<'_>)>,
+    player: &vec::Drain<(&str, zvariant::Value<'_>)>,
 ) -> impl Iterator<Item = zbus::Result<()>> {
     let playback_status = state.playback_status(mpv);
     let loop_status = state.loop_status(mpv);
     let metadata = state.metadata(mpv);
 
-    let (root, player) = (root.drain(..), player.drain(..));
     let root: HashMap<_, _> = root.as_slice().iter().map(|(k, v)| (*k, v)).collect();
     let mut player: HashMap<_, _> = player.as_slice().iter().map(|(k, v)| (*k, v)).collect();
-    if let Some(ref value) = playback_status {
+    if let Some(value) = playback_status.as_ref() {
         player.insert("PlaybackStatus", value);
     }
-    if let Some(ref value) = loop_status {
+    if let Some(value) = loop_status.as_ref() {
         player.insert("LoopStatus", value);
     }
-    if let Some(ref value) = metadata {
+    if let Some(value) = metadata.as_ref() {
         player.insert("Metadata", value);
     }
 

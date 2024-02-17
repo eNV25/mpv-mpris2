@@ -10,6 +10,12 @@ path = "src/plugin.rs"
 [profile.release]
 lto = true
 
+[lints.clippy]
+suspicious = "warn"
+complexity = "warn"
+perf = "warn"
+pedantic = "warn"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
