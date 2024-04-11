@@ -222,7 +222,7 @@ impl State {
     }
     fn loop_status(&mut self, mpv: MPVHandle) -> Option<zvariant::Value<'static>> {
         if self.loop_file.is_some() | self.loop_playlist.is_some() {
-            mpris2::loop_status_from(mpv, self.loop_file.take(), self.loop_playlist.take()).ok()
+            Some(mpris2::loop_status_from(mpv, self.loop_file.take(), self.loop_playlist.take()))
         } else {
             None
         }
@@ -230,7 +230,7 @@ impl State {
     }
     fn metadata(&mut self, mpv: MPVHandle) -> Option<zvariant::Value<'static>> {
         if self.metadata {
-            mpris2::metadata(mpv).ok()
+            Some(mpris2::metadata(mpv))
         } else {
             None
         }

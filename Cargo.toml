@@ -2,6 +2,7 @@
 name = "mpv-mpris2"
 version = "0.0.2"
 edition = "2021"
+license = "MIT-0"
 
 [lib]
 crate-type = ["cdylib"]

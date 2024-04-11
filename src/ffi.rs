@@ -21,6 +21,8 @@ impl From<MPVHandle> for *mut mpv_handle {
 #[repr(transparent)]
 pub struct Error(pub mpv_error);
 
+impl std::error::Error for Error {}
+
 impl From<mpv_error> for Error {
     #[inline]
     fn from(value: mpv_error) -> Self {
@@ -61,54 +63,25 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
-
-#[repr(transparent)]
-#[derive(Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Str<'a>(pub &'a str);
-
-impl<'a> TryFrom<&'a std::ffi::c_char> for Str<'a> {
-    type Error = std::str::Utf8Error;
-    #[inline]
-    fn try_from(value: &'a std::ffi::c_char) -> Result<Self, Self::Error> {
-        // SAFETY: value cannot be null
-        unsafe { std::ffi::CStr::from_ptr(value) }
-            .to_str()
-            .map(Self)
-    }
+pub unsafe fn string_from_cstr(
+    ptr: *const std::ffi::c_char,
+) -> Result<String, std::str::Utf8Error> {
+    std::ffi::CStr::from_ptr(ptr).to_str().map(str::to_owned)
 }
 
-impl<'a> Drop for Str<'a> {
-    #[inline]
-    fn drop(&mut self) {
-        unsafe { mpv_free(self.0.as_ptr().cast_mut().cast()) }
-    }
-}
-
-impl<'a> std::ops::Deref for Str<'a> {
-    type Target = str;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-impl<'a> std::fmt::Debug for Str<'a> {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl<'a> std::fmt::Display for Str<'a> {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
+pub unsafe fn string_from_cstr_lossy(ptr: *const std::ffi::c_char) -> String {
+    std::ffi::CStr::from_ptr(ptr).to_string_lossy().into()
 }
 
 pub trait AsBytes {
     fn as_bytes(&self) -> &[u8];
+}
+
+impl AsBytes for &[u8] {
+    #[inline]
+    fn as_bytes(&self) -> &[u8] {
+        self
+    }
 }
 
 impl AsBytes for str {

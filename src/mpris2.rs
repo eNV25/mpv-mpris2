@@ -5,7 +5,7 @@ use std::{
     env,
     fs::File,
     io::{self, BufRead, BufReader},
-    path::Path,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -87,10 +87,11 @@ impl Root {
     }
 
     #[zbus(property)]
-    fn supported_uri_schemes(self) -> fdo::Result<Vec<String>> {
+    fn supported_uri_schemes(self) -> Vec<String> {
         get!(self, "protocol-list")
-            .ok_or_else(|| fdo::Error::Failed("cannot get protocol-list".into()))
-            .map(|x| x.split(',').map(str::to_owned).collect())
+            .split(',')
+            .map(str::to_owned)
+            .collect()
     }
 
     #[zbus(property)]
@@ -206,7 +207,7 @@ impl Player {
     }
 
     #[zbus(property)]
-    fn loop_status(self) -> fdo::Result<&'static str> {
+    fn loop_status(self) -> &'static str {
         loop_status_from(self.0, None, None)
     }
 
@@ -262,7 +263,7 @@ impl Player {
     }
 
     #[zbus(property)]
-    pub fn metadata(self) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
+    pub fn metadata(self) -> HashMap<&'static str, Value<'static>> {
         metadata(self.0)
     }
 
@@ -312,30 +313,42 @@ pub fn loop_status_from(
     mpv: crate::MPVHandle,
     loop_file: Option<bool>,
     loop_playlist: Option<bool>,
-) -> fdo::Result<&'static str> {
-    let err = || fdo::Error::Failed("cannot get property".into());
-    let loop_file = loop_file.or_else(|| get!(mpv, "loop-file").map(|x| x != "no"));
-    let loop_playlist = loop_playlist.or_else(|| get!(mpv, "loop-playlist").map(|x| x != "no"));
-    if loop_file.ok_or_else(err)? {
-        Ok("Track")
-    } else if loop_playlist.ok_or_else(err)? {
-        Ok("Playlist")
+) -> &'static str {
+    let loop_file = loop_file.unwrap_or_else(|| get!(mpv, "loop-file") != "no");
+    let loop_playlist = loop_playlist.unwrap_or_else(|| get!(mpv, "loop-playlist") != "no");
+    if loop_file {
+        "Track"
+    } else if loop_playlist {
+        "Playlist"
     } else {
-        Ok("None")
+        "None"
     }
 }
 
-pub fn metadata(mpv: crate::MPVHandle) -> fdo::Result<HashMap<&'static str, Value<'static>>> {
+pub fn metadata(mpv: crate::MPVHandle) -> HashMap<&'static str, Value<'static>> {
+    const TRACK_ID: Value<'static> =
+        Value::ObjectPath(ObjectPath::from_static_str_unchecked("/io/mpv"));
+
     let mut m = HashMap::new();
+    m.insert("mpris:trackid", TRACK_ID);
 
-    m.insert(
-        "mpris:length",
-        time_from_secs(get!(mpv, "duration", f64)?).into(),
-    );
+    if let Ok(duration) = get!(mpv, "duration", f64) {
+        m.insert("mpris:length", time_from_secs(duration).into());
+    }
 
-    if let Some(data) = get!(mpv, "metadata") {
-        let data: HashMap<&str, String> =
-            serde_json::from_str(&data).map_err(|err| fdo::Error::Failed(err.to_string()))?;
+    let path = get!(mpv, "path");
+    if Url::parse(&path).is_ok() {
+        m.insert("mpris:url", path.into());
+    } else {
+        let mut file = PathBuf::from(get!(mpv, "working-directory"));
+        file.push(path);
+        if let Ok(uri) = Url::from_file_path(file) {
+            m.insert("mpris:url", String::from(uri).into());
+        }
+    }
+
+    let data = get!(mpv, "metadata");
+    if let Ok(data) = serde_json::from_str::<HashMap<&str, String>>(&data) {
         for (key, value) in data {
             let integer = || -> i64 {
                 value
@@ -344,7 +357,7 @@ pub fn metadata(mpv: crate::MPVHandle) -> fdo::Result<HashMap<&'static str, Valu
                     .parse()
                     .unwrap_or_default()
             };
-            let (key, value): (_, Value<'_>) = match key.to_ascii_lowercase().as_str() {
+            let (key, value) = match key.to_ascii_lowercase().as_str() {
                 "album" => ("xesam:album", value.into()),
                 "title" => ("xesam:title", value.into()),
                 "album_artist" => ("xesam:albumArtist", vec![value].into()),
@@ -364,36 +377,19 @@ pub fn metadata(mpv: crate::MPVHandle) -> fdo::Result<HashMap<&'static str, Valu
     }
 
     if let hash_map::Entry::Vacant(v) = m.entry("xesam:title") {
-        if let Some(value) = get!(mpv, "media-title") {
-            v.insert(value.into());
-        }
-    }
-
-    m.insert(
-        "mpris:trackid",
-        ObjectPath::try_from("/io/mpv")
-            .map_err(zbus::Error::from)?
-            .into(),
-    );
-
-    let path = get!(mpv, "path").unwrap_or_default();
-    if let Some(url) = Url::parse(&path).ok().or_else(|| {
-        get!(mpv, "working-directory")
-            .and_then(|dir| Url::from_file_path(Path::new(&dir).join(&path)).ok())
-    }) {
-        m.insert("mpris:url", String::from(url).into());
+        v.insert(get!(mpv, "media-title").into());
     }
 
     if let Some(url) = thumbnail(mpv) {
         m.insert("mpris:artUrl", url.into());
     }
 
-    Ok(m)
+    m
 }
 
 fn thumbnail(mpv: crate::MPVHandle) -> Option<String> {
-    let path = get!(mpv, "path").unwrap_or_default();
-    if path == get!(mpv, "stream-open-filename").unwrap_or_default() {
+    let path = get!(mpv, "path");
+    if path == get!(mpv, "stream-open-filename") {
         Command::new("ffmpegthumbnailer")
             .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
             .arg(&path)
@@ -428,7 +424,7 @@ fn thumbnail(mpv: crate::MPVHandle) -> Option<String> {
                     })
                     .block()
                     .ok()
-                    .and_then(|output| String::from_utf8(output.stdout).ok())
+                    .map(|output| String::from(String::from_utf8_lossy(&output.stdout)))
                     .map(truncate_newline)
             })
     }
