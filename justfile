@@ -7,11 +7,7 @@ export config_system := if clean(prefix) == "/usr" {
 } else {
 	"/usr/local/etc"
 }
-export config_user := if env_var("XDG_CONFIG_HOME") == "" {
-	join(env_var("HOME"), ".config")
-} else {
-	env_var("XDG_CONFIG_HOME")
-}
+export config_user := env("XDG_CONFIG_HOME", join(env("HOME"), ".config"))
 
 set shell := ["sh", "-xc"]
 
