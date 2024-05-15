@@ -338,12 +338,12 @@ pub fn metadata(mpv: crate::MPVHandle) -> HashMap<&'static str, Value<'static>> 
 
     let path = get!(mpv, "path");
     if Url::parse(&path).is_ok() {
-        m.insert("mpris:url", path.into());
+        m.insert("xesam:url", path.into());
     } else {
         let mut file = PathBuf::from(get!(mpv, "working-directory"));
         file.push(path);
         if let Ok(uri) = Url::from_file_path(file) {
-            m.insert("mpris:url", String::from(uri).into());
+            m.insert("xesam:url", String::from(uri).into());
         }
     }
 
