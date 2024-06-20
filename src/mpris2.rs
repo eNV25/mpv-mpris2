@@ -350,7 +350,7 @@ pub fn metadata(mpv: crate::MPVHandle) -> HashMap<&'static str, Value<'static>> 
     let data = get!(mpv, "metadata");
     if let Ok(data) = serde_json::from_str::<HashMap<&str, String>>(&data) {
         for (key, value) in data {
-            let integer = || -> i64 {
+            let integer = || -> i32 {
                 value
                     .find('/')
                     .map_or_else(|| &value[..], |x| &value[..x])
