@@ -28,5 +28,5 @@ url = "2"
 zbus = "4"
 
 [build-dependencies]
-bindgen = "0.69"
+bindgen = "0.70"
 pkg-config = "0.3"
