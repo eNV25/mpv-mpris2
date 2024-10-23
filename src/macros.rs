@@ -75,7 +75,7 @@ macro_rules! set {
         set!($mpv, $prop, MPV_FORMAT_STRING, strc!($data))
     };
     ($mpv:ident, $prop:literal, bool, $data:expr) => {
-        set!($mpv, $prop, MPV_FORMAT_FLAG, $data as std::ffi::c_int)
+        set!($mpv, $prop, MPV_FORMAT_FLAG, std::ffi::c_int::from($data))
     };
     ($mpv:ident, $prop:literal, i64, $data:expr) => {
         set!($mpv, $prop, MPV_FORMAT_INT64, $data as i64)

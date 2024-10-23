@@ -14,7 +14,7 @@ use smol::{future::FutureExt, process::Command, Timer};
 use url::Url;
 use zbus::{
     fdo, interface,
-    object_server::SignalContext,
+    object_server::SignalEmitter,
     zvariant::{ObjectPath, Value},
 };
 
@@ -185,7 +185,7 @@ impl Player {
     }
 
     #[zbus(signal)]
-    pub async fn seeked(ctxt: &SignalContext<'_>, position: i64) -> zbus::Result<()>;
+    pub async fn seeked(emitter: &SignalEmitter<'_>, position: i64) -> zbus::Result<()>;
 
     fn open_uri(self, mut uri: String) -> fdo::Result<()> {
         uri.push('\0');
