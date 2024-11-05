@@ -41,7 +41,7 @@ pub unsafe extern "C" fn mpv_open_cplugin(mpv: *mut mpv_handle) -> c_int {
     }
 }
 
-fn init(mpv: MPVHandle) -> zbus::Result<zbus::object_server::SignalContext<'static>> {
+fn init(mpv: MPVHandle) -> zbus::Result<zbus::object_server::SignalEmitter<'static>> {
     use zbus::names::WellKnownName;
     use zvariant::ObjectPath;
     const PATH_STR: &str = "/org/mpris/MediaPlayer2";
@@ -66,7 +66,7 @@ fn init(mpv: MPVHandle) -> zbus::Result<zbus::object_server::SignalContext<'stat
             }
             .block();
         })?;
-    let connection = zbus::object_server::SignalContext::from_parts(connection, PATH);
+    let connection = zbus::object_server::SignalEmitter::from_parts(connection, PATH);
     Ok(connection)
 }
 
@@ -95,7 +95,7 @@ fn register(mpv: MPVHandle) {
     observe!(mpv, MPV_FORMAT_DOUBLE, "speed", "volume");
 }
 
-fn do_loop(mpv: MPVHandle, ctxt: &zbus::object_server::SignalContext, name: &str) {
+fn do_loop(mpv: MPVHandle, ctxt: &zbus::object_server::SignalEmitter, name: &str) {
     macro_rules! data {
         ($source:expr, bool) => {
             data!($source, std::ffi::c_int) != 0
@@ -118,7 +118,7 @@ fn do_loop(mpv: MPVHandle, ctxt: &zbus::object_server::SignalContext, name: &str
         let mut state = scopeguard::guard(
             (State::default(), &mut root, &mut player),
             |(state, root, player)| {
-                signal_changed(mpv, state, ctxt, &root.drain(..), &player.drain(..))
+                signal_changed(mpv, state, ctxt, root.drain(..), player.drain(..))
                     .for_each(|err| err.unwrap_or_else(elog));
             },
         );
@@ -222,7 +222,11 @@ impl State {
     }
     fn loop_status(&mut self, mpv: MPVHandle) -> Option<zvariant::Value<'static>> {
         if self.loop_file.is_some() | self.loop_playlist.is_some() {
-            Some(mpris2::loop_status_from(mpv, self.loop_file.take(), self.loop_playlist.take()))
+            Some(mpris2::loop_status_from(
+                mpv,
+                self.loop_file.take(),
+                self.loop_playlist.take(),
+            ))
         } else {
             None
         }
@@ -241,27 +245,26 @@ impl State {
 fn signal_changed(
     mpv: MPVHandle,
     mut state: State,
-    ctxt: &zbus::object_server::SignalContext<'_>,
-    root: &vec::Drain<(&str, zvariant::Value<'_>)>,
-    player: &vec::Drain<(&str, zvariant::Value<'_>)>,
+    emitter: &zbus::object_server::SignalEmitter<'_>,
+    root: vec::Drain<(&str, zvariant::Value<'_>)>,
+    player: vec::Drain<(&str, zvariant::Value<'_>)>,
 ) -> impl Iterator<Item = zbus::Result<()>> {
-    let playback_status = state.playback_status(mpv);
-    let loop_status = state.loop_status(mpv);
-    let metadata = state.metadata(mpv);
+    let root: HashMap<_, _> = root.collect();
+    let mut player: HashMap<_, _> = player.collect();
 
-    let root: HashMap<_, _> = root.as_slice().iter().map(|(k, v)| (*k, v)).collect();
-    let mut player: HashMap<_, _> = player.as_slice().iter().map(|(k, v)| (*k, v)).collect();
-    if let Some(value) = playback_status.as_ref() {
-        player.insert("PlaybackStatus", value);
-    }
-    if let Some(value) = loop_status.as_ref() {
-        player.insert("LoopStatus", value);
-    }
-    if let Some(value) = metadata.as_ref() {
-        player.insert("Metadata", value);
-    }
+    state
+        .playback_status(mpv)
+        .and_then(|v| player.insert("PlaybackStatus", v));
+    state
+        .loop_status(mpv)
+        .and_then(|v| player.insert("LoopStatus", v));
+    state
+        .metadata(mpv)
+        .and_then(|v| player.insert("Metadata", v));
 
-    let root = (!root.is_empty()).then(|| properties_changed::<mpris2::Root>(ctxt, &root));
-    let player = (!player.is_empty()).then(|| properties_changed::<mpris2::Player>(ctxt, &player));
-    root.into_iter().chain(player)
+    [
+        properties_changed::<mpris2::Root>(emitter, root),
+        properties_changed::<mpris2::Player>(emitter, player),
+    ]
+    .into_iter()
 }

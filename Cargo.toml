@@ -25,7 +25,7 @@ scopeguard = "1"
 serde_json = "1"
 smol = "2"
 url = "2"
-zbus = "4"
+zbus = "5"
 
 [build-dependencies]
 bindgen = "0.70"
