@@ -88,7 +88,7 @@ impl Root {
 
     #[zbus(property)]
     fn supported_uri_schemes(self) -> Vec<String> {
-        get!(self, "protocol-list")
+        get!(self, c"protocol-list")
             .split(',')
             .map(str::to_owned)
             .collect()
@@ -100,7 +100,7 @@ impl Root {
     }
 
     fn quit(self) -> fdo::Result<()> {
-        Ok(command!(self, "quit")?)
+        Ok(command!(self, c"quit")?)
     }
 
     #[zbus(property)]
@@ -117,12 +117,12 @@ impl Root {
 
     #[zbus(property)]
     fn fullscreen(self) -> fdo::Result<bool> {
-        Ok(get!(self, "fullscreen", bool)?)
+        Ok(get!(self, c"fullscreen", bool)?)
     }
 
     #[zbus(property)]
     fn set_fullscreen(self, fullscreen: bool) -> zbus::Result<()> {
-        Ok(set!(self, "fullscreen", bool, fullscreen)?)
+        Ok(set!(self, c"fullscreen", bool, fullscreen)?)
     }
 
     #[zbus(property)]
@@ -140,7 +140,7 @@ impl Player {
     }
 
     fn next(self) -> fdo::Result<()> {
-        Ok(command!(self, "playlist-next")?)
+        Ok(command!(self, c"playlist-next")?)
     }
 
     #[zbus(property)]
@@ -149,7 +149,7 @@ impl Player {
     }
 
     fn previous(self) -> fdo::Result<()> {
-        Ok(command!(self, "playlist-prev")?)
+        Ok(command!(self, c"playlist-prev")?)
     }
 
     #[zbus(property)]
@@ -158,11 +158,11 @@ impl Player {
     }
 
     fn pause(self) -> fdo::Result<()> {
-        Ok(set!(self, "pause", bool, true)?)
+        Ok(set!(self, c"pause", bool, true)?)
     }
 
     fn play_pause(self) -> fdo::Result<()> {
-        Ok(command!(self, "cycle", "pause")?)
+        Ok(command!(self, c"cycle", c"pause")?)
     }
 
     #[zbus(property)]
@@ -171,17 +171,17 @@ impl Player {
     }
 
     fn play(self) -> fdo::Result<()> {
-        Ok(set!(self, "pause", bool, false)?)
+        Ok(set!(self, c"pause", bool, false)?)
     }
 
     #[zbus(property)]
     fn can_seek(self) -> fdo::Result<bool> {
-        Ok(get!(self, "seekable", bool)?)
+        Ok(get!(self, c"seekable", bool)?)
     }
 
     fn seek(self, offset: i64) -> fdo::Result<()> {
         let offset = format!("{}\0", time_as_secs(offset));
-        Ok(command!(self, "seek", offset.as_str())?)
+        Ok(command!(self, c"seek", offset.as_str())?)
     }
 
     #[zbus(signal)]
@@ -189,7 +189,7 @@ impl Player {
 
     fn open_uri(self, mut uri: String) -> fdo::Result<()> {
         uri.push('\0');
-        Ok(command!(self, "loadfile", uri.as_str())?)
+        Ok(command!(self, c"loadfile", uri.as_str())?)
     }
 
     #[zbus(property)]
@@ -198,7 +198,7 @@ impl Player {
     }
 
     fn stop(self) -> fdo::Result<()> {
-        Ok(command!(self, "stop")?)
+        Ok(command!(self, c"stop")?)
     }
 
     #[zbus(property)]
@@ -215,18 +215,18 @@ impl Player {
     fn set_loop_status(self, loop_status: &str) -> zbus::Result<()> {
         set!(
             self,
-            "loop-file",
+            c"loop-file",
             match loop_status {
-                "Track" => "inf",
-                _ => "no",
+                "Track" => c"inf",
+                _ => c"no",
             }
         )?;
         set!(
             self,
-            "loop-playlist",
+            c"loop-playlist",
             match loop_status {
-                "Playlist" => "inf",
-                _ => "no",
+                "Playlist" => c"inf",
+                _ => c"no",
             }
         )?;
         Ok(())
@@ -234,32 +234,32 @@ impl Player {
 
     #[zbus(property)]
     fn rate(self) -> fdo::Result<f64> {
-        Ok(get!(self, "speed", f64)?)
+        Ok(get!(self, c"speed", f64)?)
     }
 
     #[zbus(property)]
     fn set_rate(self, rate: f64) -> zbus::Result<()> {
-        Ok(set!(self, "speed", f64, rate)?)
+        Ok(set!(self, c"speed", f64, rate)?)
     }
 
     #[zbus(property)]
     fn minimum_rate(self) -> fdo::Result<f64> {
-        Ok(get!(self, "option-info/speed/min", f64)?)
+        Ok(get!(self, c"option-info/speed/min", f64)?)
     }
 
     #[zbus(property)]
     fn maximum_rate(self) -> fdo::Result<f64> {
-        Ok(get!(self, "option-info/speed/max", f64)?)
+        Ok(get!(self, c"option-info/speed/max", f64)?)
     }
 
     #[zbus(property)]
     fn shuffle(self) -> fdo::Result<bool> {
-        Ok(get!(self, "shuffle", bool)?)
+        Ok(get!(self, c"shuffle", bool)?)
     }
 
     #[zbus(property)]
     fn set_shuffle(self, shuffle: bool) -> zbus::Result<()> {
-        Ok(set!(self, "shuffle", bool, shuffle)?)
+        Ok(set!(self, c"shuffle", bool, shuffle)?)
     }
 
     #[zbus(property)]
@@ -269,23 +269,23 @@ impl Player {
 
     #[zbus(property)]
     fn volume(self) -> fdo::Result<f64> {
-        Ok(get!(self, "volume", f64)? / 100.0)
+        Ok(get!(self, c"volume", f64)? / 100.0)
     }
 
     #[zbus(property)]
     fn set_volume(self, volume: f64) -> zbus::Result<()> {
-        Ok(set!(self, "volume", f64, volume * 100.0)?)
+        Ok(set!(self, c"volume", f64, volume * 100.0)?)
     }
 
     #[zbus(property)]
     fn position(self) -> fdo::Result<i64> {
-        Ok(time_from_secs(get!(self, "playback-time", f64)?))
+        Ok(time_from_secs(get!(self, c"playback-time", f64)?))
     }
 
     #[allow(clippy::needless_pass_by_value)]
     fn set_position(self, track_id: ObjectPath, position: i64) -> fdo::Result<()> {
         _ = track_id;
-        Ok(set!(self, "playback-time", f64, time_as_secs(position))?)
+        Ok(set!(self, c"playback-time", f64, time_as_secs(position))?)
     }
 }
 
@@ -296,13 +296,13 @@ pub fn playback_status_from(
     pause: Option<bool>,
 ) -> fdo::Result<&'static str> {
     let idle_active = idle_active.ok_or(());
-    if idle_active.or_else(|()| get!(mpv, "idle-active", bool))?
+    if idle_active.or_else(|()| get!(mpv, c"idle-active", bool))?
         || eof_reached
-            .or_else(|| get!(mpv, "eof-reached", bool).ok())
+            .or_else(|| get!(mpv, c"eof-reached", bool).ok())
             .unwrap_or(false)
     {
         Ok("Stopped")
-    } else if pause.ok_or(()).or_else(|()| get!(mpv, "pause", bool))? {
+    } else if pause.ok_or(()).or_else(|()| get!(mpv, c"pause", bool))? {
         Ok("Paused")
     } else {
         Ok("Playing")
@@ -314,8 +314,8 @@ pub fn loop_status_from(
     loop_file: Option<bool>,
     loop_playlist: Option<bool>,
 ) -> &'static str {
-    let loop_file = loop_file.unwrap_or_else(|| get!(mpv, "loop-file") != "no");
-    let loop_playlist = loop_playlist.unwrap_or_else(|| get!(mpv, "loop-playlist") != "no");
+    let loop_file = loop_file.unwrap_or_else(|| get!(mpv, c"loop-file") != "no");
+    let loop_playlist = loop_playlist.unwrap_or_else(|| get!(mpv, c"loop-playlist") != "no");
     if loop_file {
         "Track"
     } else if loop_playlist {
@@ -332,22 +332,22 @@ pub fn metadata(mpv: crate::MPVHandle) -> HashMap<&'static str, Value<'static>> 
     let mut m = HashMap::new();
     m.insert("mpris:trackid", TRACK_ID);
 
-    if let Ok(duration) = get!(mpv, "duration", f64) {
+    if let Ok(duration) = get!(mpv, c"duration", f64) {
         m.insert("mpris:length", time_from_secs(duration).into());
     }
 
-    let path = get!(mpv, "path");
+    let path = get!(mpv, c"path");
     if Url::parse(&path).is_ok() {
         m.insert("xesam:url", path.into());
     } else {
-        let mut file = PathBuf::from(get!(mpv, "working-directory"));
+        let mut file = PathBuf::from(get!(mpv, c"working-directory"));
         file.push(path);
         if let Ok(uri) = Url::from_file_path(file) {
             m.insert("xesam:url", String::from(uri).into());
         }
     }
 
-    let data = get!(mpv, "metadata");
+    let data = get!(mpv, c"metadata");
     if let Ok(data) = serde_json::from_str::<HashMap<&str, String>>(&data) {
         for (key, value) in data {
             let integer = || -> i32 {
@@ -377,7 +377,7 @@ pub fn metadata(mpv: crate::MPVHandle) -> HashMap<&'static str, Value<'static>> 
     }
 
     if let hash_map::Entry::Vacant(v) = m.entry("xesam:title") {
-        v.insert(get!(mpv, "media-title").into());
+        v.insert(get!(mpv, c"media-title").into());
     }
 
     if let Some(url) = thumbnail(mpv) {
@@ -388,8 +388,8 @@ pub fn metadata(mpv: crate::MPVHandle) -> HashMap<&'static str, Value<'static>> 
 }
 
 fn thumbnail(mpv: crate::MPVHandle) -> Option<String> {
-    let path = get!(mpv, "path");
-    if path == get!(mpv, "stream-open-filename") {
+    let path = get!(mpv, c"path");
+    if path == get!(mpv, c"stream-open-filename") {
         Command::new("ffmpegthumbnailer")
             .args(["-m", "-cjpeg", "-s0", "-o-", "-i"])
             .arg(&path)

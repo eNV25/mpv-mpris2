@@ -671,6 +671,7 @@ dependencies = [
  "scopeguard",
  "serde_json",
  "smol",
+ "static_assertions",
  "url",
  "zbus",
 ]

@@ -12,7 +12,7 @@ mod llb;
 mod macros;
 mod mpris2;
 
-macro_rules! cstr {
+macro_rules! strc {
     ($s:expr) => {
         std::ffi::CStr::from_ptr($s).to_str().unwrap_or_default()
     };
@@ -25,7 +25,7 @@ pub unsafe extern "C" fn mpv_open_cplugin(mpv: *mut mpv_handle) -> c_int {
         return 1;
     }
 
-    let name = cstr!(mpv_client_name(mpv));
+    let name = strc!(mpv_client_name(mpv));
     let mpv = MPVHandle(mpv);
 
     match init(mpv).as_ref() {
@@ -74,25 +74,25 @@ fn init(mpv: MPVHandle) -> zbus::Result<zbus::object_server::SignalEmitter<'stat
 // mentioned in the interface implementations.
 // It's a bit of a pain in the ass but there's no other way.
 fn register(mpv: MPVHandle) {
-    observe!(mpv, "media-title", "metadata", "duration");
+    observe!(mpv, c"media-title", c"metadata", c"duration");
     observe!(
         mpv,
         MPV_FORMAT_STRING,
-        "keep-open",
-        "loop-file",
-        "loop-playlist",
+        c"keep-open",
+        c"loop-file",
+        c"loop-playlist",
     );
     observe!(
         mpv,
         MPV_FORMAT_FLAG,
-        "fullscreen",
-        "seekable",
-        "idle-active",
-        "eof-reached",
-        "pause",
-        "shuffle",
+        c"fullscreen",
+        c"seekable",
+        c"idle-active",
+        c"eof-reached",
+        c"pause",
+        c"shuffle",
     );
-    observe!(mpv, MPV_FORMAT_DOUBLE, "speed", "volume");
+    observe!(mpv, MPV_FORMAT_DOUBLE, c"speed", c"volume");
 }
 
 fn do_loop(mpv: MPVHandle, ctxt: &zbus::object_server::SignalEmitter, name: &str) {
@@ -101,7 +101,7 @@ fn do_loop(mpv: MPVHandle, ctxt: &zbus::object_server::SignalEmitter, name: &str
             data!($source, std::ffi::c_int) != 0
         };
         ($source:expr, &str) => {
-            cstr!(*$source.data.cast())
+            strc!(*$source.data.cast())
         };
         ($source:expr, $type:ty) => {
             *$source.data.cast::<$type>()
@@ -134,13 +134,13 @@ fn do_loop(mpv: MPVHandle, ctxt: &zbus::object_server::SignalEmitter, name: &str
                 MPV_EVENT_SEEK => seeking = true,
                 MPV_EVENT_PLAYBACK_RESTART if seeking => {
                     seeking = false;
-                    if let Ok(position) = get!(mpv, "playback-time", f64) {
+                    if let Ok(position) = get!(mpv, c"playback-time", f64) {
                         seeked(ctxt, mpris2::time_from_secs(position)).unwrap_or_else(elog);
                     }
                 }
                 MPV_EVENT_PROPERTY_CHANGE => {
                     let prop = unsafe { data!(ev, mpv_event_property) };
-                    let name = unsafe { cstr!(prop.name) };
+                    let name = unsafe { strc!(prop.name) };
                     match (name, prop.format) {
                         ("media-title" | "metadata" | "duration", _) => {
                             state.metadata = true;

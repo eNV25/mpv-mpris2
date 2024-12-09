@@ -1,18 +1,19 @@
 #![macro_use]
 
-macro_rules! strc {
-    ($s:literal) => {
-        concat!($s, "\0").as_ptr().cast::<std::ffi::c_char>()
-    };
+macro_rules! cstr {
+    ($s:literal) => {{
+        ::static_assertions::const_assert!(matches!($s.to_bytes_with_nul(), [.., b'\0']));
+        $s.as_ptr()
+    }};
     ($s:expr) => {{
-        debug_assert_eq!($crate::AsBytes::as_bytes($s).last(), Some(&b'\0'));
+        debug_assert!(matches!($crate::AsBytes::as_bytes($s), [.., b'\0']));
         $s.as_ptr().cast::<std::ffi::c_char>()
     }};
 }
 
 macro_rules! command {
     ($mpv:ident, $($arg:expr),+ $(,)?) => {{
-        let args = [$(strc!($arg)),+, std::ptr::null()];
+        let args = [$(cstr!($arg)),+, std::ptr::null()];
         match unsafe { $crate::mpv_command($mpv.into(), std::ptr::addr_of!(args).cast_mut().cast()) } {
             0.. => Ok(()),
             error => Err($crate::Error(error.into())),
@@ -35,7 +36,7 @@ macro_rules! get {
     };
     ($mpv:ident, $prop:literal, MPV_FORMAT_STRING) => {
         unsafe {
-            let ptr = $crate::mpv_get_property_string($mpv.into(), strc!($prop));
+            let ptr = $crate::mpv_get_property_string($mpv.into(), cstr!($prop));
             if ptr.is_null() {
                 "".to_owned()
             } else {
@@ -59,7 +60,7 @@ macro_rules! get {
         match unsafe {
             $crate::mpv_get_property(
                 $mpv.into(),
-                strc!($prop),
+                cstr!($prop),
                 $crate::$format,
                 std::ptr::addr_of_mut!(data).cast(),
             )
@@ -72,7 +73,7 @@ macro_rules! get {
 
 macro_rules! set {
     ($mpv:ident, $prop:literal, $data:expr) => {
-        set!($mpv, $prop, MPV_FORMAT_STRING, strc!($data))
+        set!($mpv, $prop, MPV_FORMAT_STRING, cstr!($data))
     };
     ($mpv:ident, $prop:literal, bool, $data:expr) => {
         set!($mpv, $prop, MPV_FORMAT_FLAG, std::ffi::c_int::from($data))
@@ -88,7 +89,7 @@ macro_rules! set {
         match unsafe {
             $crate::mpv_set_property(
                 $mpv.into(),
-                strc!($prop),
+                cstr!($prop),
                 $crate::$format,
                 std::ptr::addr_of!(data).cast_mut().cast(),
             )
@@ -112,7 +113,7 @@ macro_rules! observe {
             $crate::mpv_observe_property(
                 $mpv.into(),
                 userdata,
-                strc!($prop),
+                cstr!($prop),
                 $crate::$format,
             );
         }
