@@ -1,7 +1,7 @@
 #![allow(clippy::ignored_unit_patterns)] // for interface macro
 
 use std::{
-    collections::{hash_map, HashMap},
+    collections::HashMap,
     env,
     fs::File,
     io::{self, BufRead, BufReader},
@@ -359,7 +359,7 @@ pub fn metadata(mpv: crate::MPVHandle) -> HashMap<&'static str, Value<'static>> 
             };
             let (key, value) = match key.to_ascii_lowercase().as_str() {
                 "album" => ("xesam:album", value.into()),
-                "title" => ("xesam:title", value.into()),
+                //"title" => ("xesam:title", value.into()),
                 "album_artist" => ("xesam:albumArtist", vec![value].into()),
                 "artist" => ("xesam:artist", vec![value].into()),
                 "comment" => ("xesam:comment", vec![value].into()),
@@ -376,9 +376,7 @@ pub fn metadata(mpv: crate::MPVHandle) -> HashMap<&'static str, Value<'static>> 
         }
     }
 
-    if let hash_map::Entry::Vacant(v) = m.entry("xesam:title") {
-        v.insert(get!(mpv, c"media-title").into());
-    }
+    m.insert("xesam:title", get!(mpv, c"media-title").into());
 
     if let Some(url) = thumbnail(mpv) {
         m.insert("mpris:artUrl", url.into());
