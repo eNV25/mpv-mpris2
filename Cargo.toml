@@ -9,7 +9,6 @@ anyhow = "1"
 crabtime = "1"
 futures-concurrency = "7"
 kanal = "0.1"
-macro_rules_attribute = "0.2"
 infer = "0.19"
 mpris-server = { version = "0.10", features = ["unstable"] }
 oneshot = { version = "0.2", features = ["async", "std"] }
@@ -20,7 +19,6 @@ serde_json = "1"
 serde_variant = "0.1"
 slab = "0.4"
 smol = "2"
-smol-macros = "0.1"
 sync_wrapper = { version = "1", features = ["futures"] }
 thiserror = "2"
 tracing = "0.1"
