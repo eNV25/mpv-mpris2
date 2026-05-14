@@ -1,14 +1,13 @@
 use super::protocol::{Command, Event, ListCommand, Request, Response};
 use futures_concurrency::stream::Merge;
 use slab::Slab;
-use smol::{
+use smol::{io::BufReader, net::unix::UnixStream, prelude::*, stream};
+use std::{
     future,
-    io::{self, BufReader},
-    net::unix::UnixStream,
-    prelude::*,
-    stream,
+    io::{self, IoSlice},
+    mem,
+    task::Poll,
 };
-use std::{io::IoSlice, mem, pin::pin, task::Poll};
 
 pub(super) struct MpvIpcWorker {
     stream: UnixStream,
@@ -79,7 +78,7 @@ impl MpvIpcWorker {
             })
         }
 
-        let mut stream = pin!({
+        let mut stream = {
             let events_tx = stream::once_future(future::poll_fn(move |cx| {
                 self.events_tx.poll(cx).map(WorkerEvent::EventsSender)
             }));
@@ -87,7 +86,7 @@ impl MpvIpcWorker {
             let responses = stream::unfold(Some(lines), batch_ready_responses);
             let requests = self.requests.stream().map(WorkerEvent::Command);
             (events_tx, responses, requests).merge()
-        });
+        };
         let mut requests: Slab<oneshot::Sender<Result<serde_json::Value, String>>> = Slab::new();
         let mut events = Vec::new();
         let mut events_tx = None;

@@ -7,8 +7,7 @@ use futures_concurrency::stream::Merge;
 use kanal::AsyncSender;
 use mpris_server::Signal;
 use smol::{lock::RwLock, prelude::*, process::Command, Executor};
-use std::path::PathBuf;
-use std::{pin::pin, process::Stdio};
+use std::{path::PathBuf, process::Stdio};
 use url::Url;
 
 pub(crate) mod args;
@@ -32,14 +31,14 @@ pub(crate) async fn main_loop(
     let events = kanal::bounded_async(0);
     let art_urls = kanal::bounded_async(0);
     let mut art_task = None;
-    let mut events = pin!({
+    let mut events = {
         events_tx.send(events.0)?;
         (
             events.1.stream().map(LoopEvent::Events),
             art_urls.1.stream().map(LoopEvent::ArtUrl),
         )
             .merge()
-    });
+    };
     while let Some(loop_event) = events.next().await {
         let mut state = server.imp().state().await;
         let mut seeked = None;
