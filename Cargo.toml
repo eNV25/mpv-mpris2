@@ -19,7 +19,6 @@ serde_json = "1"
 serde_variant = "0.1"
 slab = "0.4"
 smol = "2"
-sync_wrapper = { version = "1", features = ["futures"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

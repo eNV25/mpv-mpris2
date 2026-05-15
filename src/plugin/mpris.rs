@@ -1,5 +1,5 @@
 use crate::{
-    common::{SyncFutureExt, time_as_secs, time_from_secs},
+    common::{FutureSyncExt, time_as_secs, time_from_secs},
     mpv::{ListCommand, LoadFlags, NamedCommand, SeekFlags, SeekMode},
 };
 use mpris_server::{
