@@ -6,7 +6,7 @@ use data_encoding::BASE64;
 use futures_concurrency::stream::Merge;
 use kanal::AsyncSender;
 use mpris_server::Signal;
-use smol::{lock::RwLock, prelude::*, process::Command, Executor};
+use smol::{Executor, lock::RwLock, prelude::*, process::Command};
 use std::{path::PathBuf, process::Stdio};
 use url::Url;
 
