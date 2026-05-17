@@ -7,7 +7,7 @@ use mpris_server::{
     TrackId, Volume,
 };
 use smol::lock::OnceCell;
-use zbus::{fdo, zvariant::ObjectPath};
+use zbus::fdo;
 
 impl RootInterface for super::Player {
     async fn raise(&self) -> fdo::Result<()> {
@@ -220,28 +220,7 @@ impl PlayerInterface for super::Player {
 
     async fn metadata(&self) -> fdo::Result<Metadata> {
         let state = self.state.read().await;
-        let track_id = ObjectPath::from_string_unchecked({
-            let Some(playlist_entry_id) = state.playlist_entry_id else {
-                return Err(fdo::Error::Failed("No track".to_owned()));
-            };
-            format!("/io/mpv/playlist_entry_id/{playlist_entry_id}")
-        });
-        let mut metadata = Metadata::new();
-        metadata.set_trackid(track_id.into());
-        metadata.set_length(time_from_secs(state.duration).into());
-        metadata.set_title(state.media_title.to_owned().into());
-        for (k, v) in &state.metadata {
-            use crate::mpv::MetadataKey::*;
-            match (k, v) {
-                (Artist, v) => metadata.set_artist([v].into()),
-                (Album, v) => metadata.set_album(v.into()),
-                (AlbumArtist, v) => metadata.set_album_artist([v].into()),
-                (Composer, v) => metadata.set_composer([v].into()),
-                _ => (),
-            }
-        }
-        metadata.set_art_url(state.art_url.clone());
-        Ok(metadata)
+        state.metadata().map_err(fdo::Error::Failed)
     }
 
     async fn volume(&self) -> fdo::Result<Volume> {

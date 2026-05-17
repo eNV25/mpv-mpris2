@@ -350,10 +350,17 @@ pub(crate) enum LoopVariant {
 #[derive(DeserializeFromStr, EnumString, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[strum(serialize_all = "snake_case", ascii_case_insensitive)]
 pub(crate) enum MetadataKey {
-    Artist,
     Album,
     AlbumArtist,
+    Artist,
+    #[strum(serialize = "bpm", serialize = "tbp", serialize = "tbpm")]
+    Bpm,
+    Comment,
     Composer,
+    Disc,
+    Genre,
+    Lyricist,
+    Track,
     #[strum(default)]
     Other(String),
 }

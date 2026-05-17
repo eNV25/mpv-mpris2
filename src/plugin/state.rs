@@ -1,5 +1,8 @@
-use crate::mpv::{self, KnownProperty, LoopData, LoopVariant, MetadataKey, Mpv, Track};
-use mpris_server::{LoopStatus, PlaybackStatus, Volume};
+use crate::{
+    common::time_from_secs,
+    mpv::{self, KnownProperty, LoopData, LoopVariant, MetadataKey, Mpv, Track},
+};
+use mpris_server::{LoopStatus, Metadata, PlaybackStatus, Volume, builder::MetadataBuilder};
 use serde::{Deserialize, Serialize};
 use smol::lock::{RwLock, RwLockWriteGuard};
 use std::{
@@ -8,7 +11,7 @@ use std::{
     path::PathBuf,
 };
 use url::Url;
-use zbus::{fdo, names::InterfaceName, object_server::Interface, zvariant};
+use zbus::{fdo, names::InterfaceName, object_server::Interface, zvariant, zvariant::ObjectPath};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct State {
@@ -246,6 +249,50 @@ impl State {
         }
     }
 
+    pub(super) fn metadata(&self) -> Result<Metadata, String> {
+        let track_id = ObjectPath::from_string_unchecked({
+            let Some(playlist_entry_id) = self.playlist_entry_id else {
+                return Err("No track".into());
+            };
+            format!("/io/mpv/playlist_entry_id/{playlist_entry_id}")
+        });
+        let url = match (&self.path, &self.working_directory) {
+            (Some(path), Some(working_directory)) => {
+                Url::from_file_path(working_directory.join(path)).ok()
+            }
+            (Some(path), None) => Url::from_file_path(path).ok(),
+            _ => None,
+        };
+        let mut metadata = MetadataBuilder::default()
+            .trackid(track_id)
+            .length(time_from_secs(self.duration))
+            .title(self.media_title.to_owned())
+            .build();
+        metadata.set_art_url(self.art_url.clone());
+        metadata.set_url(url);
+        for (k, v) in &self.metadata {
+            use crate::mpv::MetadataKey::*;
+            let integer = |s: &str| s.split_once('/').map(|(s, _)| s).unwrap_or(s).parse().ok();
+            match (k, v) {
+                (Album, v) => metadata.set_album(v.into()),
+                (AlbumArtist, v) => metadata.set_album_artist([v].into()),
+                (Artist, v) => metadata.set_artist([v].into()),
+                (Bpm, v) => metadata.set_audio_bpm(integer(v)),
+                (Comment, v) => metadata.set_comment([v].into()),
+                (Composer, v) => metadata.set_composer([v].into()),
+                (Disc, v) => metadata.set_disc_number(integer(v)),
+                (Genre, v) => metadata.set_genre([v].into()),
+                (Lyricist, v) => metadata.set_lyricist([v].into()),
+                (Track, v) => metadata.set_track_number(integer(v)),
+                (Other(k), v) if k.to_ascii_lowercase().starts_with("lyrics") => {
+                    metadata.set_lyrics(v.into());
+                }
+                _ => (),
+            }
+        }
+        Ok(metadata)
+    }
+
     pub(super) fn volume(&self) -> Volume {
         self.volume as Volume / 100.0
     }
@@ -385,8 +432,8 @@ fn art_info(
             Track::ExternalImage {
                 external_filename, ..
             } => {
-                art_filename = art_filename
-                    .or_else(|| working_directory.map(|w| w.join(external_filename)));
+                art_filename =
+                    art_filename.or_else(|| working_directory.map(|w| w.join(external_filename)));
             }
             &Track::EmbeddedAlbumArt { ff_index, .. } => {
                 art_index = Some(ff_index);
