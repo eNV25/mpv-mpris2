@@ -884,6 +884,7 @@ dependencies = [
  "futures-concurrency",
  "infer",
  "kanal",
+ "libc",
  "mpris-server",
  "oneshot",
  "pico-args",
