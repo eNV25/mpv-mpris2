@@ -4,10 +4,13 @@ use crate::{
 };
 use mpris_server::{
     LoopStatus, Metadata, PlaybackRate, PlaybackStatus, PlayerInterface, RootInterface, Time,
-    TrackId, Volume,
+    TrackId, Volume, builder::MetadataBuilder,
 };
-use smol::lock::OnceCell;
-use zbus::fdo;
+use serde::{Deserialize, Serialize};
+use smol::lock::{OnceCell, RwLockWriteGuard};
+use std::{collections::HashMap, mem};
+use url::Url;
+use zbus::{fdo, names::InterfaceName, object_server::Interface, zvariant, zvariant::ObjectPath};
 
 impl RootInterface for super::Player {
     async fn raise(&self) -> fdo::Result<()> {
@@ -267,5 +270,278 @@ impl PlayerInterface for super::Player {
 
     async fn can_control(&self) -> fdo::Result<bool> {
         Ok(true)
+    }
+}
+
+impl super::state::State {
+    pub(super) fn playlist_has_next(&self) -> bool {
+        self.playlist_current_pos
+            .and_then(|x| x.checked_add(1))
+            .zip(self.playlist_count)
+            .is_some_and(|(current, count)| current < count)
+    }
+
+    pub(super) fn playlist_has_previous(&self) -> bool {
+        self.playlist_current_pos.is_some_and(|current| 0 < current)
+    }
+
+    pub(super) fn playback_status(&self) -> PlaybackStatus {
+        if self.idle_active || self.eof_reached {
+            PlaybackStatus::Stopped
+        } else if self.pause {
+            PlaybackStatus::Paused
+        } else {
+            PlaybackStatus::Playing
+        }
+    }
+
+    pub(super) fn loop_status(&self) -> LoopStatus {
+        if self.loop_file {
+            LoopStatus::Track
+        } else if self.loop_playlist {
+            LoopStatus::Playlist
+        } else {
+            LoopStatus::None
+        }
+    }
+
+    pub(super) fn metadata(&self) -> Result<Metadata, String> {
+        let track_id = ObjectPath::from_string_unchecked({
+            let Some(playlist_entry_id) = self.playlist_entry_id else {
+                return Err("No track".into());
+            };
+            format!("/io/mpv/playlist_entry_id/{playlist_entry_id}")
+        });
+        let url = match (&self.path, &self.working_directory) {
+            (Some(path), Some(working_directory)) => {
+                Url::from_file_path(working_directory.join(path)).ok()
+            }
+            (Some(path), None) => Url::from_file_path(path).ok(),
+            _ => None,
+        };
+        let mut metadata = MetadataBuilder::default()
+            .trackid(track_id)
+            .length(time_from_secs(self.duration))
+            .title(self.media_title.to_owned())
+            .build();
+        metadata.set_art_url(self.art_url.clone());
+        metadata.set_url(url);
+        for (k, v) in &self.metadata {
+            use crate::mpv::MetadataKey::*;
+            let integer = |s: &str| s.split_once('/').map(|(s, _)| s).unwrap_or(s).parse().ok();
+            match (k, v) {
+                (Album, v) => metadata.set_album(v.into()),
+                (AlbumArtist, v) => metadata.set_album_artist([v].into()),
+                (Artist, v) => metadata.set_artist([v].into()),
+                (Bpm, v) => metadata.set_audio_bpm(integer(v)),
+                (Comment, v) => metadata.set_comment([v].into()),
+                (Composer, v) => metadata.set_composer([v].into()),
+                (Disc, v) => metadata.set_disc_number(integer(v)),
+                (Genre, v) => metadata.set_genre([v].into()),
+                (Lyricist, v) => metadata.set_lyricist([v].into()),
+                (Track, v) => metadata.set_track_number(integer(v)),
+                (Other(k), v) if k.to_ascii_lowercase().starts_with("lyrics") => {
+                    metadata.set_lyrics(v.into());
+                }
+                _ => (),
+            }
+        }
+        Ok(metadata)
+    }
+
+    pub(super) fn volume(&self) -> Volume {
+        self.volume as Volume / 100.0
+    }
+}
+
+#[derive(Default)]
+struct InterfaceChanges {
+    changed: HashMap<Property, zvariant::Value<'static>>,
+    invalid: Vec<Property>,
+}
+
+impl InterfaceChanges {
+    fn is_empty(&self) -> bool {
+        self.changed.is_empty() && self.invalid.is_empty()
+    }
+    async fn emit(
+        &self,
+        connection: &zbus::Connection,
+        interface: InterfaceName<'static>,
+    ) -> zbus::Result<()> {
+        if self.is_empty() {
+            return Ok(());
+        }
+        connection
+            .emit_signal(
+                None::<zbus::names::BusName<'static>>,
+                "/org/mpris/MediaPlayer2",
+                fdo::Properties::name(),
+                "PropertiesChanged",
+                &(interface, &self.changed, self.invalid.as_slice()),
+            )
+            .await
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct PropertyChanges {
+    root: InterfaceChanges,
+    player: InterfaceChanges,
+}
+
+impl PropertyChanges {
+    pub(crate) async fn emit(&self, connection: &zbus::Connection) -> zbus::Result<()> {
+        const ROOT: InterfaceName<'static> =
+            InterfaceName::from_static_str_unchecked("org.mpris.MediaPlayer2");
+        const PLAYER: InterfaceName<'static> =
+            InterfaceName::from_static_str_unchecked("org.mpris.MediaPlayer2.Player");
+        self.root.emit(connection, ROOT).await?;
+        self.player.emit(connection, PLAYER).await?;
+        Ok(())
+    }
+
+    fn change(
+        &mut self,
+        property: Property,
+        value: zvariant::Value<'static>,
+    ) -> Option<zvariant::Value<'static>> {
+        if property.is_root() {
+            &mut self.root.changed
+        } else {
+            &mut self.player.changed
+        }
+        .insert(property, value)
+    }
+
+    fn invalidate(&mut self, property: Property) {
+        if property.is_root() {
+            &mut self.root.invalid
+        } else {
+            &mut self.player.invalid
+        }
+        .push(property);
+    }
+}
+
+impl super::Player {
+    pub(crate) async fn update(&self, other: &mut super::state::State) -> PropertyChanges {
+        use Property::*;
+
+        let mut state = self.state.write().await;
+        mem::swap(&mut *state, other);
+
+        if let (state_art, other_art) = (
+            super::art_info(&state.track_list, &state.path, &state.working_directory),
+            super::art_info(&other.track_list, &other.path, &other.working_directory),
+        ) && state_art != other_art
+        {
+            match state_art {
+                Some(super::ArtInfo::Embedded(path, index)) => {
+                    other.art_index = Some((path, index));
+                }
+                Some(super::ArtInfo::External(url)) => {
+                    state.art_url = url.into();
+                }
+                _ => (),
+            }
+        }
+
+        let mut ret = PropertyChanges::default();
+        let state = RwLockWriteGuard::downgrade(state);
+        if state.fullscreen != other.fullscreen {
+            ret.change(Fullscreen, state.fullscreen.into());
+        }
+        if state.playlist_entry_id.is_some() != other.playlist_entry_id.is_some() {
+            ret.change(CanPlay, state.playlist_entry_id.is_some().into());
+            ret.change(CanPause, state.playlist_entry_id.is_some().into());
+        }
+        if state.seekable != other.seekable {
+            ret.change(CanSeek, state.seekable.into());
+        }
+        if state.playlist_current_pos != other.playlist_current_pos
+            || state.playlist_count != other.playlist_count
+        {
+            if state.playlist_has_next() != other.playlist_has_next() {
+                ret.change(CanGoNext, state.playlist_has_next().into());
+            }
+            if state.playlist_has_previous() != other.playlist_has_previous() {
+                ret.change(CanGoPrevious, state.playlist_has_previous().into());
+            }
+        }
+        if state.idle_active != other.idle_active
+            || state.eof_reached != other.eof_reached
+            || state.pause != other.pause
+        {
+            ret.change(PlaybackStatus, state.playback_status().into());
+        }
+        if state.loop_file != other.loop_file || state.loop_playlist != other.loop_playlist {
+            ret.change(LoopStatus, state.loop_status().into());
+        }
+        if state.speed != other.speed {
+            ret.change(Rate, state.speed.into());
+        }
+        if state.shuffle != other.shuffle {
+            ret.change(Shuffle, state.shuffle.into());
+        }
+        if state.volume != other.volume {
+            ret.change(Volume, state.volume().into());
+        }
+        if state.playlist_entry_id != other.playlist_entry_id
+            || state.duration != other.duration
+            || state.media_title != other.media_title
+            || state.metadata != other.metadata
+            || state.art_url != other.art_url
+            || state.path != other.path
+            || state.working_directory != other.working_directory
+        {
+            ret.invalidate(Metadata);
+        }
+        ret
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, zvariant::Type)]
+#[zvariant(signature = "s")]
+enum Property {
+    CanQuit,
+    Fullscreen,
+    CanSetFullscreen,
+    CanRaise,
+    HasTrackList,
+    Identity,
+    DesktopEntry,
+    SupportedUriSchemes,
+    SupportedMimeTypes,
+    PlaybackStatus,
+    LoopStatus,
+    Rate,
+    Shuffle,
+    Metadata,
+    Volume,
+    MinimumRate,
+    MaximumRate,
+    CanGoNext,
+    CanGoPrevious,
+    CanPlay,
+    CanPause,
+    CanSeek,
+}
+
+impl Property {
+    const fn is_root(&self) -> bool {
+        use Property::*;
+        matches!(
+            self,
+            CanQuit
+                | Fullscreen
+                | CanSetFullscreen
+                | CanRaise
+                | HasTrackList
+                | Identity
+                | DesktopEntry
+                | SupportedUriSchemes
+                | SupportedMimeTypes
+        )
     }
 }

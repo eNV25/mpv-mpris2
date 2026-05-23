@@ -1,6 +1,6 @@
 use crate::{
     common::time_from_secs,
-    mpv::{Event, Mpv, Property},
+    mpv::{Event, Mpv, Property, Track},
 };
 use data_encoding::BASE64;
 use futures_concurrency::stream::Merge;
@@ -126,4 +126,59 @@ async fn art_worker(tx: kanal::AsyncSender<Url>, path: PathBuf, index: u64) -> O
         tracing::error!(error = %e, "Failed to send art url");
     }
     Some(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ArtInfo {
+    Embedded(PathBuf, u64),
+    External(Url),
+}
+
+fn art_info(
+    track_list: &[Track],
+    path: &Option<PathBuf>,
+    working_directory: &Option<PathBuf>,
+) -> Option<ArtInfo> {
+    let path = path.as_ref();
+    let working_directory = working_directory.as_ref();
+    let mut art_index = None;
+    let mut art_filename = None;
+    let track_list_len = track_list.len();
+    for track in track_list {
+        match track {
+            Track::ExternalAlbumArt {
+                external_filename, ..
+            } => {
+                art_filename = working_directory.map(|w| w.join(external_filename));
+            }
+            Track::ExternalImage {
+                external_filename, ..
+            } => {
+                art_filename =
+                    art_filename.or_else(|| working_directory.map(|w| w.join(external_filename)));
+            }
+            &Track::EmbeddedAlbumArt { ff_index, .. } => {
+                art_index = Some(ff_index);
+            }
+            &Track::EmbeddedImage { ff_index, .. } => {
+                if track_list_len == 1 {
+                    art_filename = working_directory.zip(path).map(|(w, p)| w.join(p));
+                } else {
+                    art_index.get_or_insert(ff_index);
+                }
+            }
+            Track::None(_) => (),
+        }
+    }
+    let art_filename = || {
+        art_filename
+            .and_then(|path| Url::from_file_path(path).ok())
+            .map(ArtInfo::External)
+    };
+    let art_index = || {
+        art_index
+            .zip(path)
+            .map(|(index, path)| ArtInfo::Embedded(path.clone(), index))
+    };
+    art_filename().or_else(art_index)
 }
