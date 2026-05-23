@@ -142,6 +142,8 @@ impl super::Player {
             || state.media_title != other.media_title
             || state.metadata != other.metadata
             || state.art_url != other.art_url
+            || state.path != other.path
+            || state.working_directory != other.working_directory
         {
             ret.invalidate(Metadata);
         }
