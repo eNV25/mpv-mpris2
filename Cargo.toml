@@ -1,8 +1,11 @@
 [package]
-name = "mpris"
-version = "0.0.0"
+name = "mpv-mpris2"
+version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+description = "Rust implementation of the MPRIS v2 DBus interface for the mpv media player."
+repository = "https://github.com/eNV25/mpv-mpris2"
+publish = false
 
 [dependencies]
 anyhow = "1"
@@ -29,7 +32,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 zbus = { version = "5", default-features = false, features = ["async-io"] }
 
-[profile.release-lto]
+[profile.dist]
 inherits = "release"
 lto = true
 strip = true
