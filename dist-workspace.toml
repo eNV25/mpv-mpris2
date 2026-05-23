@@ -12,3 +12,6 @@ installers = ["shell"]
 install-path = "~/.config/mpv/scripts/"
 bin-aliases = { mpris = ["mpris.run"] }
 ci = "github"
+
+[dist.dependencies.apt]
+mpv = "*"
