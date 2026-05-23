@@ -10,7 +10,7 @@ cargo-auditable = true
 unix-archive = ".tar.zst"
 installers = ["shell"]
 install-path = "~/.config/mpv/scripts/"
-bin-aliases = { mpris = ["mpris.run"] }
+bin-aliases = { mpv-mpris2 = ["mpris.run"] }
 ci = "github"
 
 [dist.dependencies.apt]
