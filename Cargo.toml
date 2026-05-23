@@ -1,6 +1,6 @@
 [package]
 name = "mpv-mpris2"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "GPL-3.0-or-later"
 description = "Rust implementation of the MPRIS v2 DBus interface for the mpv media player."
