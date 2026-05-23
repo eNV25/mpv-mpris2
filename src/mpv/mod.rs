@@ -1,6 +1,6 @@
 use self::ipc::MpvIpcWorker;
 use serde::{Serialize, de::DeserializeOwned};
-use smol::{Executor, net::unix::UnixStream};
+use smol::{LocalExecutor, net::unix::UnixStream};
 use std::fmt::Debug;
 use thiserror::Error;
 use zbus::fdo;
@@ -17,7 +17,7 @@ pub(crate) struct Mpv {
 
 impl Mpv {
     pub(crate) fn new(
-        ex: &Executor,
+        ex: &LocalExecutor,
         stream: UnixStream,
     ) -> (Self, oneshot::Sender<kanal::AsyncSender<Vec<Event>>>) {
         let (requests_tx, requests) = kanal::bounded_async(0);

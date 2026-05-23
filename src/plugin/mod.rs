@@ -4,9 +4,8 @@ use crate::{
 };
 use data_encoding::BASE64;
 use futures_concurrency::stream::Merge;
-use kanal::AsyncSender;
 use mpris_server::Signal;
-use smol::{Executor, lock::RwLock, prelude::*, process::Command};
+use smol::{LocalExecutor, lock::RwLock, prelude::*, process::Command};
 use std::{path::PathBuf, process::Stdio};
 use url::Url;
 
@@ -20,7 +19,7 @@ pub(crate) struct Player {
 }
 
 pub(crate) async fn main_loop(
-    ex: &Executor<'_>,
+    ex: &LocalExecutor<'_>,
     server: mpris_server::Server<Player>,
     events_tx: oneshot::Sender<kanal::AsyncSender<Vec<Event>>>,
 ) -> anyhow::Result<()> {
@@ -97,7 +96,7 @@ pub(crate) async fn main_loop(
     Ok(())
 }
 
-async fn art_worker(tx: AsyncSender<Url>, path: PathBuf, index: u64) -> Option<()> {
+async fn art_worker(tx: kanal::AsyncSender<Url>, path: PathBuf, index: u64) -> Option<()> {
     let url = Command::new("ffmpeg")
         .arg("-i")
         .arg(&path)
