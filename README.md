@@ -19,5 +19,5 @@ is recommended, but the `.run` extension is required.
 ```
 $ git clone https://github.com/eNV25/mpv-mpris2
 $ cargo build --release
-$ install -v target/release/mpris ~/.config/mpv/scripts/mpris.run
+$ install -v target/release/mpv-mpris2 ~/.config/mpv/scripts/mpris.run
 ```
