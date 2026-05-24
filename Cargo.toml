@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-crabtime = "1"
+crabtime = { git = "https://github.com/eNV25/crabtime.git", rev = "1374088" }
 data-encoding = "2"
 futures-concurrency = "7"
 infer = "0.19"

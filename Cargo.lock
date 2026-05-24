@@ -294,8 +294,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 [[package]]
 name = "crabtime"
 version = "1.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81605e11aed454fb3838bc408f091d17f2f6d31613fb897f561a45bc8fb98378"
+source = "git+https://github.com/eNV25/crabtime.git?rev=1374088#137408882a44c45a57f9a3b77a3dc3afef24b647"
 dependencies = [
  "crabtime-internal",
 ]
@@ -303,8 +302,7 @@ dependencies = [
 [[package]]
 name = "crabtime-internal"
 version = "1.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e49bfb43e6dfb9026c045fc1fd5cde79f4927ea6d1d89a2d346c55879e85900c"
+source = "git+https://github.com/eNV25/crabtime.git?rev=1374088#137408882a44c45a57f9a3b77a3dc3afef24b647"
 dependencies = [
  "proc-macro2",
  "quote",
