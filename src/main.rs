@@ -1,7 +1,6 @@
 use crate::{mpv::Mpv, plugin::Player};
 use mpris_server::Server;
 use smol::LocalExecutor;
-use tracing::Level;
 use tracing_subscriber::EnvFilter;
 
 mod common;
@@ -10,7 +9,7 @@ mod plugin;
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive(Level::INFO.into()))
+        .with_env_filter(EnvFilter::from_default_env())
         .init();
 
     let ex = LocalExecutor::new();
