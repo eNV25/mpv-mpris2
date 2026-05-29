@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
+compact_str = { version = "0.9", features = ["serde"] }
 crabtime = { git = "https://github.com/eNV25/crabtime.git", rev = "1374088" }
 data-encoding = "2"
 futures-concurrency = "7"

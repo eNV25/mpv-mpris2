@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use compact_str::CompactString;
 use serde::{Deserialize, Serialize, Serializer, de::IgnoredAny, ser, ser::SerializeSeq};
 use serde_constant::ConstBool;
 use serde_json::Value;
@@ -49,7 +50,7 @@ pub(crate) enum ListCommand {
     GetProperty(&'static str),
     GetPropertyString(&'static str),
     SetProperty(&'static str, Value),
-    SetPropertyString(&'static str, String),
+    SetPropertyString(&'static str, CompactString),
     ObserveProperty(i64, &'static str),
     ObservePropertyString(i64, &'static str),
     UnobserveProperty(i64),
@@ -139,7 +140,7 @@ pub(crate) enum NamedCommand {
         #[serde(skip_serializing_if = "Option::is_none")]
         index: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        options: Option<BTreeMap<String, String>>,
+        options: Option<BTreeMap<CompactString, CompactString>>,
     },
     Loadlist {
         url: String,
@@ -237,11 +238,11 @@ pub(super) enum Response {
     },
     CommandResponseFailure {
         request_id: i64,
-        error: String,
+        error: CompactString,
     },
     Event(Event),
     UnknownEvent {
-        event: String,
+        event: CompactString,
     },
 }
 
@@ -261,7 +262,7 @@ pub(crate) enum Event {
         reason: EndFileReason,
         playlist_entry_id: i64,
         #[serde(default)]
-        file_error: Option<String>,
+        file_error: Option<CompactString>,
         #[serde(default)]
         playlist_insert_id: Option<i64>,
         #[serde(default)]
@@ -272,12 +273,12 @@ pub(crate) enum Event {
     PlaybackRestart,
     Shutdown,
     LogMessage {
-        prefix: String,
-        level: String,
-        text: String,
+        prefix: CompactString,
+        level: CompactString,
+        text: CompactString,
     },
     ClientMessage {
-        args: Vec<String>,
+        args: Vec<CompactString>,
     },
     VideoReconfig,
     AudioReconfig,
@@ -287,7 +288,7 @@ pub(crate) enum Event {
         playback_time: f64,
     },
     #[serde(skip_deserializing)]
-    Unknown(String),
+    Unknown(CompactString),
 }
 
 #[derive(Deserialize, Debug)]
@@ -306,7 +307,7 @@ pub(crate) enum EndFileReason {
 #[serde(untagged)]
 pub(crate) enum Property {
     Known(KnownProperty),
-    Unknown { name: String, data: Value },
+    Unknown { name: CompactString, data: Value },
 }
 
 #[derive(Deserialize, Debug)]
@@ -362,7 +363,7 @@ pub(crate) enum MetadataKey {
     Lyricist,
     Track,
     #[strum(default)]
-    Other(String),
+    Other(CompactString),
 }
 
 #[derive(Deserialize, Debug, Clone)]

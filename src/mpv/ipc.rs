@@ -122,7 +122,7 @@ impl MpvIpcWorker {
                             Response::CommandResponseFailure { request_id, error } => {
                                 if let Some(sender) = requests.try_remove(request_id as _)
                                     && !sender.is_closed()
-                                    && let Err(e) = sender.send(Err(error))
+                                    && let Err(e) = sender.send(Err(error.into()))
                                 {
                                     tracing::error!(error = %e, "Failed to send command reply");
                                 }
