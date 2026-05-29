@@ -8,7 +8,7 @@ use mpris_server::{
 };
 use serde::{Deserialize, Serialize};
 use smol::lock::{OnceCell, RwLockWriteGuard};
-use std::{collections::HashMap, mem};
+use std::{collections::BTreeMap, mem};
 use url::Url;
 use zbus::{fdo, names::InterfaceName, object_server::Interface, zvariant, zvariant::ObjectPath};
 
@@ -356,7 +356,7 @@ impl super::state::State {
 
 #[derive(Default)]
 struct InterfaceChanges {
-    changed: HashMap<Property, zvariant::Value<'static>>,
+    changed: BTreeMap<Property, zvariant::Value<'static>>,
     invalid: Vec<Property>,
 }
 
@@ -501,7 +501,7 @@ impl super::Player {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize, zvariant::Type)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, zvariant::Type)]
 #[zvariant(signature = "s")]
 enum Property {
     CanQuit,
