@@ -1,6 +1,6 @@
 use crate::{
     common::{FutureSyncExt, time_as_secs, time_from_secs},
-    mpv::{ListCommand, LoadFlags, NamedCommand, SeekFlags, SeekMode},
+    mpv::{ListCommand, LoadFlags, NamedCommand, Path, SeekFlags, SeekMode},
 };
 use mpris_server::{
     LoopStatus, Metadata, PlaybackRate, PlaybackStatus, PlayerInterface, RootInterface, Time,
@@ -8,7 +8,7 @@ use mpris_server::{
 };
 use serde::{Deserialize, Serialize};
 use smol::lock::{OnceCell, RwLockWriteGuard};
-use std::{collections::BTreeMap, mem};
+use std::{borrow::Cow, collections::BTreeMap, mem};
 use url::Url;
 use zbus::{fdo, names::InterfaceName, object_server::Interface, zvariant, zvariant::ObjectPath};
 
@@ -313,10 +313,15 @@ impl super::state::State {
             format!("/io/mpv/playlist_entry_id/{playlist_entry_id}")
         });
         let url = match (&self.path, &self.working_directory) {
-            (Some(path), Some(working_directory)) => {
-                Url::from_file_path(working_directory.join(path)).ok()
+            (Some(Path::Url(url)), _) => Some(url.clone()),
+            (Some(Path::Path(path)), working_directory) => {
+                let path = if let Some(working_directory) = working_directory {
+                    Cow::Owned(working_directory.join(path))
+                } else {
+                    Cow::Borrowed(path.as_path())
+                };
+                Url::from_file_path(path).ok()
             }
-            (Some(path), None) => Url::from_file_path(path).ok(),
             _ => None,
         };
         let mut metadata = MetadataBuilder::default()

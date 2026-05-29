@@ -1,6 +1,6 @@
 use crate::{
     common::time_from_secs,
-    mpv::{Event, Mpv, Property, Track},
+    mpv::{Event, Mpv, Path, Property, Track},
 };
 use data_encoding::BASE64;
 use futures_concurrency::stream::Merge;
@@ -136,10 +136,13 @@ enum ArtInfo {
 
 fn art_info(
     track_list: &[Track],
-    path: &Option<PathBuf>,
+    path: &Option<Path>,
     working_directory: &Option<PathBuf>,
 ) -> Option<ArtInfo> {
-    let path = path.as_ref();
+    let path = path.as_ref().and_then(|x| match x {
+        Path::Path(path) => Some(path),
+        _ => None,
+    });
     let working_directory = working_directory.as_ref();
     let mut art_index = None;
     let mut art_filename = None;

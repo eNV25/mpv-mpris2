@@ -8,6 +8,7 @@ use serde_variant::to_variant_name;
 use serde_with::DeserializeFromStr;
 use std::{collections::BTreeMap, fmt::Debug, path::PathBuf};
 use strum::{EnumDiscriminants, EnumString};
+use url::Url;
 
 #[derive(Serialize)]
 pub(super) struct Request {
@@ -329,7 +330,7 @@ pub(crate) enum KnownProperty {
     MediaTitle(#[serde(default)] Option<String>),
     Metadata(#[serde(default)] BTreeMap<MetadataKey, String>),
     TrackList(#[serde(default)] Vec<Track>),
-    Path(#[serde(default)] Option<PathBuf>),
+    Path(#[serde(default)] Option<Path>),
     WorkingDirectory(#[serde(default)] Option<PathBuf>),
 }
 
@@ -348,7 +349,7 @@ pub(crate) enum LoopVariant {
     No,
 }
 
-#[derive(DeserializeFromStr, EnumString, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(DeserializeFromStr, EnumString, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[strum(serialize_all = "snake_case", ascii_case_insensitive)]
 pub(crate) enum MetadataKey {
     Album,
@@ -366,7 +367,7 @@ pub(crate) enum MetadataKey {
     Other(CompactString),
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 #[serde(untagged)]
 pub(crate) enum Track {
     #[serde(rename_all = "kebab-case")]
@@ -398,4 +399,11 @@ pub(crate) enum Track {
         external_filename: PathBuf,
     },
     None(IgnoredAny),
+}
+
+#[derive(Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(untagged)]
+pub(crate) enum Path {
+    Url(Url),
+    Path(PathBuf),
 }
