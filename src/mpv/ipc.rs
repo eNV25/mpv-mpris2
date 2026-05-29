@@ -120,7 +120,9 @@ impl MpvIpcWorker {
                                 }
                             }
                             Response::CommandResponseFailure { request_id, error } => {
-                                if let Some(sender) = requests.try_remove(request_id as _)
+                                if request_id == i64::MIN {
+                                    tracing::error!(error = %error, "Failed get playback-time after seek event");
+                                } else if let Some(sender) = requests.try_remove(request_id as _)
                                     && !sender.is_closed()
                                     && let Err(e) = sender.send(Err(error.into()))
                                 {
