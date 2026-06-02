@@ -128,7 +128,7 @@ async fn art_worker(tx: kanal::AsyncSender<Url>, path: PathBuf, index: u64) -> O
     Some(())
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Eq, PartialEq)]
 enum ArtInfo {
     Embedded(PathBuf, u64),
     External(Url),

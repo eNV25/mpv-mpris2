@@ -63,7 +63,7 @@ impl Mpv {
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-#[derive(Error, Debug)]
+#[derive(Debug, Error)]
 pub(crate) enum Error {
     #[error("MPV JSON IPC error: {0}")]
     Mpv(String),

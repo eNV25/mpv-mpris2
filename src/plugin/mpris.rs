@@ -506,7 +506,7 @@ impl super::Player {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, zvariant::Type)]
+#[derive(Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, zvariant::Type)]
 #[zvariant(signature = "s")]
 enum Property {
     CanQuit,

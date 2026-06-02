@@ -169,7 +169,7 @@ pub(crate) struct SeekFlags(
     pub(crate) Option<SeekPrecision>,
 );
 
-#[derive(Serialize, Copy, Clone)]
+#[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum SeekMode {
     Relative,
@@ -178,7 +178,7 @@ pub(crate) enum SeekMode {
     RelativePercent,
 }
 
-#[derive(Serialize, Copy, Clone)]
+#[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum SeekPrecision {
     Keyframes,
@@ -253,7 +253,7 @@ pub(super) enum CommandResponseSuccess {
     Success,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 #[serde(tag = "event", rename_all = "kebab-case")]
 pub(crate) enum Event {
     StartFile {
@@ -292,7 +292,7 @@ pub(crate) enum Event {
     Unknown(CompactString),
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum EndFileReason {
     Eof,
@@ -304,14 +304,14 @@ pub(crate) enum EndFileReason {
     Unknown,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum Property {
     Known(KnownProperty),
     Unknown { name: CompactString, data: Value },
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 #[serde(tag = "name", content = "data", rename_all = "kebab-case")]
 pub(crate) enum KnownProperty {
     Fullscreen(#[serde(default)] Option<bool>),
@@ -334,7 +334,7 @@ pub(crate) enum KnownProperty {
     WorkingDirectory(#[serde(default)] Option<PathBuf>),
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum LoopData {
     Bool(bool),
@@ -342,14 +342,14 @@ pub(crate) enum LoopData {
     Variant(LoopVariant),
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum LoopVariant {
     Inf,
     No,
 }
 
-#[derive(DeserializeFromStr, EnumString, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Debug, DeserializeFromStr, EnumString, Eq, Ord, PartialEq, PartialOrd)]
 #[strum(serialize_all = "snake_case", ascii_case_insensitive)]
 pub(crate) enum MetadataKey {
     Album,
@@ -367,7 +367,7 @@ pub(crate) enum MetadataKey {
     Other(CompactString),
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum Track {
     #[serde(rename_all = "kebab-case")]
@@ -401,7 +401,7 @@ pub(crate) enum Track {
     None(IgnoredAny),
 }
 
-#[derive(Deserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(untagged)]
 pub(crate) enum Path {
     Url(Url),
