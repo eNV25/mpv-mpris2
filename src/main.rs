@@ -3,7 +3,7 @@ use mpris_server::Server;
 use smol::LocalExecutor;
 use tracing_subscriber::EnvFilter;
 
-mod common;
+mod future;
 mod mpv;
 mod plugin;
 

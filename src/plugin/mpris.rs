@@ -1,6 +1,6 @@
 use crate::{
-    common::{FutureSyncExt, time_as_secs, time_from_secs},
-    mpv::{ListCommand, LoadFlags, NamedCommand, Path, SeekFlags, SeekMode},
+    future::FutureSyncExt,
+    mpv::{ListCommand, LoadFlags, MpvTime, NamedCommand, Path, SeekFlags, SeekMode},
 };
 use mpris_server::{
     LoopStatus, Metadata, PlaybackRate, PlaybackStatus, PlayerInterface, RootInterface, Time,
@@ -130,7 +130,7 @@ impl PlayerInterface for super::Player {
     async fn stop(&self) -> fdo::Result<()> {
         self.pause().await?;
         let cmd = NamedCommand::Seek {
-            target: 0.0,
+            target: 0.0.into(),
             flags: Some(SeekFlags(Some(SeekMode::Absolute), None)),
         };
         Ok(self.mpv.run_command(cmd).sync().await?)
@@ -141,9 +141,8 @@ impl PlayerInterface for super::Player {
     }
 
     async fn seek(&self, offset: Time) -> fdo::Result<()> {
-        let offset = time_as_secs(offset);
         let cmd = NamedCommand::Seek {
-            target: offset,
+            target: offset.into(),
             flags: Some(SeekFlags(Some(SeekMode::Relative), None)),
         };
         Ok(self.mpv.run_command(cmd).sync().await?)
@@ -156,7 +155,7 @@ impl PlayerInterface for super::Player {
             .transpose()
             .map_err(|e| fdo::Error::InvalidArgs(format!("Invalid track ID: {e}")))?;
         if id.is_some() && id == self.state.read().await.playlist_entry_id {
-            let value = time_as_secs(position);
+            let value: MpvTime = position.into();
             self.mpv.set_property("playback-time", value).sync().await?;
             return Ok(());
         }
@@ -236,8 +235,8 @@ impl PlayerInterface for super::Player {
     }
 
     async fn position(&self) -> fdo::Result<Time> {
-        let position = self.mpv.get_property("playback-time").sync().await?;
-        Ok(time_from_secs(position))
+        let position: MpvTime = self.mpv.get_property("playback-time").sync().await?;
+        Ok(position.into())
     }
 
     async fn minimum_rate(&self) -> fdo::Result<PlaybackRate> {
@@ -326,7 +325,7 @@ impl super::state::State {
         };
         let mut metadata = MetadataBuilder::default()
             .trackid(track_id)
-            .length(time_from_secs(self.duration))
+            .length(self.duration.into())
             .title(self.media_title.to_owned())
             .build();
         metadata.set_art_url(self.art_url.clone());

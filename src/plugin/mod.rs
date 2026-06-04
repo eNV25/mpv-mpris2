@@ -1,7 +1,4 @@
-use crate::{
-    common::time_from_secs,
-    mpv::{Event, Mpv, Path, Property, Track},
-};
+use crate::mpv::{Event, Mpv, Path, Property, Track};
 use data_encoding::BASE64;
 use futures_concurrency::stream::Merge;
 use mpris_server::Signal;
@@ -78,7 +75,7 @@ pub(crate) async fn main_loop(
         if let Some(playback_time) = seeked.take()
             && let Err(e) = server
                 .emit(Signal::Seeked {
-                    position: time_from_secs(playback_time),
+                    position: playback_time.into(),
                 })
                 .await
         {

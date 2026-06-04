@@ -1,4 +1,6 @@
-use crate::mpv::{self, KnownProperty, LoopData, LoopVariant, MetadataKey, Mpv, Path, Track};
+use crate::mpv::{
+    self, KnownProperty, LoopData, LoopVariant, MetadataKey, Mpv, MpvTime, Path, Track,
+};
 use smol::lock::RwLock;
 use std::{collections::BTreeMap, path::PathBuf};
 use url::Url;
@@ -18,7 +20,7 @@ pub(crate) struct State {
     pub(crate) speed: f64,
     pub(crate) shuffle: bool,
     pub(crate) volume: f64,
-    pub(crate) duration: f64,
+    pub(crate) duration: MpvTime,
     pub(crate) media_title: String,
     pub(crate) metadata: BTreeMap<MetadataKey, String>,
     pub(crate) track_list: Vec<Track>,

@@ -130,7 +130,7 @@ impl Serialize for ListCommand {
 #[serde(tag = "name", rename_all = "kebab-case")]
 pub(crate) enum NamedCommand {
     Seek {
-        target: f64,
+        target: MpvTime,
         #[serde(skip_serializing_if = "Option::is_none")]
         flags: Option<SeekFlags>,
     },
@@ -286,7 +286,7 @@ pub(crate) enum Event {
     PropertyChange(Property),
     #[serde(skip_deserializing)]
     Seeked {
-        playback_time: f64,
+        playback_time: MpvTime,
     },
     #[serde(skip_deserializing)]
     Unknown(CompactString),
@@ -326,7 +326,7 @@ pub(crate) enum KnownProperty {
     Speed(#[serde(default)] Option<f64>),
     Shuffle(#[serde(default)] Option<bool>),
     Volume(#[serde(default)] Option<f64>),
-    Duration(#[serde(default)] Option<f64>),
+    Duration(#[serde(default)] Option<MpvTime>),
     MediaTitle(#[serde(default)] Option<String>),
     Metadata(#[serde(default)] BTreeMap<MetadataKey, String>),
     TrackList(#[serde(default)] Vec<Track>),
@@ -406,4 +406,34 @@ pub(crate) enum Track {
 pub(crate) enum Path {
     Url(Url),
     Path(PathBuf),
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(transparent)]
+#[repr(transparent)]
+pub(crate) struct MpvTime(f64);
+
+impl From<f64> for MpvTime {
+    fn from(time: f64) -> Self {
+        Self(time)
+    }
+}
+
+impl From<MpvTime> for f64 {
+    fn from(time: MpvTime) -> Self {
+        time.0
+    }
+}
+
+impl From<mpris_server::Time> for MpvTime {
+    fn from(time: mpris_server::Time) -> Self {
+        Self(time.as_micros() as f64 / 1_000_000.0)
+    }
+}
+
+impl From<MpvTime> for mpris_server::Time {
+    fn from(time: MpvTime) -> Self {
+        let secs = time.0;
+        Self::from_micros((secs * 1_000_000.0) as i64)
+    }
 }
