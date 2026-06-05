@@ -1,6 +1,8 @@
 use crate::{
     future::FutureSyncExt,
-    mpv::{ListCommand, LoadFlags, MpvTime, NamedCommand, Path, SeekFlags, SeekMode},
+    mpv::{
+        ListCommand, LoadFlags, MpvTime, NamedCommand, Path, SeekFlags, SeekMode, SeekPrecision,
+    },
 };
 use mpris_server::{
     LoopStatus, Metadata, PlaybackRate, PlaybackStatus, PlayerInterface, RootInterface, Time,
@@ -143,7 +145,10 @@ impl PlayerInterface for super::Player {
     async fn seek(&self, offset: Time) -> fdo::Result<()> {
         let cmd = NamedCommand::Seek {
             target: offset.into(),
-            flags: Some(SeekFlags(Some(SeekMode::Relative), None)),
+            flags: Some(SeekFlags(
+                Some(SeekMode::Relative),
+                Some(SeekPrecision::Exact),
+            )),
         };
         Ok(self.mpv.run_command(cmd).sync().await?)
     }
