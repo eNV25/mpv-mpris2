@@ -1,6 +1,4 @@
-use crate::mpv::{
-    self, KnownProperty, LoopData, LoopVariant, MetadataKey, Mpv, MpvTime, Path, Track,
-};
+use crate::mpv::{self, Mpv};
 use smol::lock::RwLock;
 use std::{collections::BTreeMap, path::PathBuf};
 use url::Url;
@@ -20,11 +18,11 @@ pub(crate) struct State {
     pub(crate) speed: f64,
     pub(crate) shuffle: bool,
     pub(crate) volume: f64,
-    pub(crate) duration: MpvTime,
+    pub(crate) duration: mpv::Seconds,
     pub(crate) media_title: String,
-    pub(crate) metadata: BTreeMap<MetadataKey, String>,
-    pub(crate) track_list: Vec<Track>,
-    pub(crate) path: Option<Path>,
+    pub(crate) metadata: BTreeMap<mpv::MetadataKey, String>,
+    pub(crate) track_list: Vec<mpv::Track>,
+    pub(crate) path: Option<mpv::Path>,
     pub(crate) working_directory: Option<PathBuf>,
     pub(crate) art_url: Option<Url>,
     pub(crate) art_index: Option<(PathBuf, u64)>,
@@ -69,16 +67,8 @@ impl super::Player {
 }
 
 impl State {
-    pub(crate) fn change(&mut self, property: KnownProperty) {
-        fn loop_bool(loop_data: Option<LoopData>) -> bool {
-            match loop_data {
-                Some(LoopData::Bool(b)) => b,
-                Some(LoopData::Number(n)) => n != 0,
-                Some(LoopData::Variant(LoopVariant::Inf)) => true,
-                Some(LoopData::Variant(LoopVariant::No)) => false,
-                None => false,
-            }
-        }
+    pub(crate) fn change(&mut self, property: mpv::KnownProperty) {
+        use mpv::KnownProperty;
         match property {
             KnownProperty::Fullscreen(fullscreen) => {
                 self.fullscreen = fullscreen.unwrap_or_default();
@@ -102,10 +92,10 @@ impl State {
                 self.pause = pause.unwrap_or_default();
             }
             KnownProperty::LoopFile(loop_file) => {
-                self.loop_file = loop_bool(loop_file);
+                self.loop_file = loop_file.map(bool::from).unwrap_or_default();
             }
             KnownProperty::LoopPlaylist(loop_playlist) => {
-                self.loop_playlist = loop_bool(loop_playlist);
+                self.loop_playlist = loop_playlist.map(bool::from).unwrap_or_default();
             }
             KnownProperty::Speed(speed) => {
                 self.speed = speed.unwrap_or_default();

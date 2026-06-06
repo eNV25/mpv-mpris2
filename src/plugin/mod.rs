@@ -1,4 +1,4 @@
-use crate::mpv::{Event, Mpv, Path, Property, Track};
+use crate::mpv::{self, Mpv};
 use data_encoding::BASE64;
 use futures_concurrency::stream::Merge;
 use mpris_server::Signal;
@@ -18,10 +18,10 @@ pub(crate) struct Player {
 pub(crate) async fn main_loop(
     ex: &LocalExecutor<'_>,
     server: mpris_server::Server<Player>,
-    events_tx: oneshot::Sender<kanal::AsyncSender<Vec<Event>>>,
+    events_tx: oneshot::Sender<kanal::AsyncSender<Vec<mpv::Event>>>,
 ) -> anyhow::Result<()> {
     enum LoopEvent {
-        Events(Vec<Event>),
+        Events(Vec<mpv::Event>),
         ArtUrl(Url),
     }
     let events = kanal::bounded_async(0);
@@ -40,6 +40,7 @@ pub(crate) async fn main_loop(
         let mut seeked = None;
         match loop_event {
             LoopEvent::Events(events) => {
+                use mpv::{Event, Property};
                 for event in events {
                     match event {
                         Event::Shutdown => return Ok(()),
@@ -132,12 +133,12 @@ enum ArtInfo {
 }
 
 fn art_info(
-    track_list: &[Track],
-    path: &Option<Path>,
+    track_list: &[mpv::Track],
+    path: &Option<mpv::Path>,
     working_directory: &Option<PathBuf>,
 ) -> Option<ArtInfo> {
     let path = path.as_ref().and_then(|x| match x {
-        Path::Path(path) => Some(path),
+        mpv::Path::Path(path) => Some(path),
         _ => None,
     });
     let working_directory = working_directory.as_ref();
@@ -145,6 +146,7 @@ fn art_info(
     let mut art_filename = None;
     let track_list_len = track_list.len();
     for track in track_list {
+        use mpv::Track;
         match track {
             Track::ExternalAlbumArt {
                 external_filename, ..

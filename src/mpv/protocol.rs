@@ -130,7 +130,7 @@ impl Serialize for ListCommand {
 #[serde(tag = "name", rename_all = "kebab-case")]
 pub(crate) enum NamedCommand {
     Seek {
-        target: MpvTime,
+        target: Seconds,
         #[serde(skip_serializing_if = "Option::is_none")]
         flags: Option<SeekFlags>,
     },
@@ -168,6 +168,25 @@ pub(crate) struct SeekFlags(
     pub(crate) Option<SeekMode>,
     pub(crate) Option<SeekPrecision>,
 );
+
+impl From<(SeekMode, SeekPrecision)> for SeekFlags {
+    fn from(value: (SeekMode, SeekPrecision)) -> Self {
+        let (mode, precision) = value;
+        Self(mode.into(), precision.into())
+    }
+}
+
+impl From<SeekMode> for SeekFlags {
+    fn from(value: SeekMode) -> Self {
+        Self(value.into(), None)
+    }
+}
+
+impl From<SeekPrecision> for SeekFlags {
+    fn from(value: SeekPrecision) -> Self {
+        Self(None, value.into())
+    }
+}
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -286,7 +305,7 @@ pub(crate) enum Event {
     PropertyChange(Property),
     #[serde(skip_deserializing)]
     Seeked {
-        playback_time: MpvTime,
+        playback_time: Seconds,
     },
     #[serde(skip_deserializing)]
     Unknown(CompactString),
@@ -326,7 +345,7 @@ pub(crate) enum KnownProperty {
     Speed(#[serde(default)] Option<f64>),
     Shuffle(#[serde(default)] Option<bool>),
     Volume(#[serde(default)] Option<f64>),
-    Duration(#[serde(default)] Option<MpvTime>),
+    Duration(#[serde(default)] Option<Seconds>),
     MediaTitle(#[serde(default)] Option<String>),
     Metadata(#[serde(default)] BTreeMap<MetadataKey, String>),
     TrackList(#[serde(default)] Vec<Track>),
@@ -340,6 +359,17 @@ pub(crate) enum LoopData {
     Bool(bool),
     Number(u64),
     Variant(LoopVariant),
+}
+
+impl From<LoopData> for bool {
+    fn from(value: LoopData) -> Self {
+        match value {
+            LoopData::Bool(b) => b,
+            LoopData::Number(n) => n != 0,
+            LoopData::Variant(LoopVariant::Inf) => true,
+            LoopData::Variant(LoopVariant::No) => false,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -411,28 +441,28 @@ pub(crate) enum Path {
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(transparent)]
 #[repr(transparent)]
-pub(crate) struct MpvTime(f64);
+pub(crate) struct Seconds(f64);
 
-impl From<f64> for MpvTime {
+impl From<f64> for Seconds {
     fn from(time: f64) -> Self {
         Self(time)
     }
 }
 
-impl From<MpvTime> for f64 {
-    fn from(time: MpvTime) -> Self {
+impl From<Seconds> for f64 {
+    fn from(time: Seconds) -> Self {
         time.0
     }
 }
 
-impl From<mpris_server::Time> for MpvTime {
+impl From<mpris_server::Time> for Seconds {
     fn from(time: mpris_server::Time) -> Self {
         Self(time.as_micros() as f64 / 1_000_000.0)
     }
 }
 
-impl From<MpvTime> for mpris_server::Time {
-    fn from(time: MpvTime) -> Self {
+impl From<Seconds> for mpris_server::Time {
+    fn from(time: Seconds) -> Self {
         let secs = time.0;
         Self::from_micros((secs * 1_000_000.0) as i64)
     }

@@ -1,9 +1,4 @@
-use crate::{
-    future::FutureSyncExt,
-    mpv::{
-        ListCommand, LoadFlags, MpvTime, NamedCommand, Path, SeekFlags, SeekMode, SeekPrecision,
-    },
-};
+use crate::{future::FutureSyncExt, mpv};
 use mpris_server::{
     LoopStatus, Metadata, PlaybackRate, PlaybackStatus, PlayerInterface, RootInterface, Time,
     TrackId, Volume, builder::MetadataBuilder,
@@ -20,7 +15,7 @@ impl RootInterface for super::Player {
     }
 
     async fn quit(&self) -> fdo::Result<()> {
-        let cmd = NamedCommand::Quit { code: None };
+        let cmd = mpv::NamedCommand::Quit { code: None };
         Ok(self.mpv.run_command(cmd).sync().await?)
     }
 
@@ -111,12 +106,12 @@ impl RootInterface for super::Player {
 
 impl PlayerInterface for super::Player {
     async fn next(&self) -> fdo::Result<()> {
-        let cmd = NamedCommand::PlaylistNext { flags: None };
+        let cmd = mpv::NamedCommand::PlaylistNext { flags: None };
         Ok(self.mpv.run_command(cmd).sync().await?)
     }
 
     async fn previous(&self) -> fdo::Result<()> {
-        let cmd = NamedCommand::PlaylistPrev { flags: None };
+        let cmd = mpv::NamedCommand::PlaylistPrev { flags: None };
         Ok(self.mpv.run_command(cmd).sync().await?)
     }
 
@@ -125,15 +120,16 @@ impl PlayerInterface for super::Player {
     }
 
     async fn play_pause(&self) -> fdo::Result<()> {
-        let cmd = ListCommand::Cycle("pause", None);
+        let cmd = mpv::ListCommand::Cycle("pause", None);
         Ok(self.mpv.run_command(cmd).sync().await?)
     }
 
     async fn stop(&self) -> fdo::Result<()> {
+        use mpv::SeekMode::*;
         self.pause().await?;
-        let cmd = NamedCommand::Seek {
+        let cmd = mpv::NamedCommand::Seek {
             target: 0.0.into(),
-            flags: Some(SeekFlags(Some(SeekMode::Absolute), None)),
+            flags: Some(Absolute.into()),
         };
         Ok(self.mpv.run_command(cmd).sync().await?)
     }
@@ -143,12 +139,10 @@ impl PlayerInterface for super::Player {
     }
 
     async fn seek(&self, offset: Time) -> fdo::Result<()> {
-        let cmd = NamedCommand::Seek {
+        use mpv::{SeekMode::*, SeekPrecision::*};
+        let cmd = mpv::NamedCommand::Seek {
             target: offset.into(),
-            flags: Some(SeekFlags(
-                Some(SeekMode::Relative),
-                Some(SeekPrecision::Exact),
-            )),
+            flags: Some((Relative, Exact).into()),
         };
         Ok(self.mpv.run_command(cmd).sync().await?)
     }
@@ -160,7 +154,7 @@ impl PlayerInterface for super::Player {
             .transpose()
             .map_err(|e| fdo::Error::InvalidArgs(format!("Invalid track ID: {e}")))?;
         if id.is_some() && id == self.state.read().await.playlist_entry_id {
-            let value: MpvTime = position.into();
+            let value: mpv::Seconds = position.into();
             self.mpv.set_property("playback-time", value).sync().await?;
             return Ok(());
         }
@@ -168,9 +162,9 @@ impl PlayerInterface for super::Player {
     }
 
     async fn open_uri(&self, uri: String) -> fdo::Result<()> {
-        let cmd = NamedCommand::Loadfile {
+        let cmd = mpv::NamedCommand::Loadfile {
             url: uri,
-            flags: Some(LoadFlags::Replace),
+            flags: Some(mpv::LoadFlags::Replace),
             index: None,
             options: None,
         };
@@ -240,7 +234,7 @@ impl PlayerInterface for super::Player {
     }
 
     async fn position(&self) -> fdo::Result<Time> {
-        let position: MpvTime = self.mpv.get_property("playback-time").sync().await?;
+        let position: mpv::Seconds = self.mpv.get_property("playback-time").sync().await?;
         Ok(position.into())
     }
 
@@ -317,8 +311,8 @@ impl super::state::State {
             format!("/io/mpv/playlist_entry_id/{playlist_entry_id}")
         });
         let url = match (&self.path, &self.working_directory) {
-            (Some(Path::Url(url)), _) => Some(url.clone()),
-            (Some(Path::Path(path)), working_directory) => {
+            (Some(mpv::Path::Url(url)), _) => Some(url.clone()),
+            (Some(mpv::Path::Path(path)), working_directory) => {
                 let path = if let Some(working_directory) = working_directory {
                     Cow::Owned(working_directory.join(path))
                 } else {
