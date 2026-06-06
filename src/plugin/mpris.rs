@@ -44,11 +44,11 @@ impl RootInterface for super::Player {
     }
 
     async fn identity(&self) -> fdo::Result<String> {
-        Ok("mpv".into())
+        Ok("mpv Media Player".into())
     }
 
     async fn desktop_entry(&self) -> fdo::Result<String> {
-        Ok("mpv Media Player".into())
+        Ok("mpv".into())
     }
 
     async fn supported_uri_schemes(&self) -> fdo::Result<Vec<String>> {
