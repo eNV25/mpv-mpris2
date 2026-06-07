@@ -552,3 +552,15 @@ impl Property {
         )
     }
 }
+
+impl From<Time> for mpv::Seconds {
+    fn from(time: Time) -> Self {
+        Self::from(time.as_micros() as f64 / 1_000_000.0)
+    }
+}
+
+impl From<mpv::Seconds> for Time {
+    fn from(time: mpv::Seconds) -> Self {
+        Self::from_micros((f64::from(time) * 1_000_000.0) as i64)
+    }
+}

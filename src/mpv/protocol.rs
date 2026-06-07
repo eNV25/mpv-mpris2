@@ -454,16 +454,3 @@ impl From<Seconds> for f64 {
         time.0
     }
 }
-
-impl From<mpris_server::Time> for Seconds {
-    fn from(time: mpris_server::Time) -> Self {
-        Self(time.as_micros() as f64 / 1_000_000.0)
-    }
-}
-
-impl From<Seconds> for mpris_server::Time {
-    fn from(time: Seconds) -> Self {
-        let secs = time.0;
-        Self::from_micros((secs * 1_000_000.0) as i64)
-    }
-}
