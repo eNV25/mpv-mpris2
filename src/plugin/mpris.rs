@@ -306,7 +306,11 @@ impl super::state::State {
     pub(super) fn metadata(&self) -> Result<Metadata, String> {
         let track_id = ObjectPath::from_string_unchecked({
             let Some(playlist_entry_id) = self.playlist_entry_id else {
-                return Err("No track".into());
+                return Ok(MetadataBuilder::default()
+                    .trackid(ObjectPath::from_string_unchecked(
+                        "/org/mpris/MediaPlayer2/TrackList/NoTrack".into(),
+                    ))
+                    .build());
             };
             format!("/io/mpv/playlist_entry_id/{playlist_entry_id}")
         });
