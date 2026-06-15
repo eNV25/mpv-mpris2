@@ -1,12 +1,12 @@
 use crate::mpv::{self, Mpv};
-use data_encoding::BASE64;
 use futures_concurrency::stream::Merge;
 use mpris_server::Signal;
-use smol::{LocalExecutor, lock::RwLock, prelude::*, process::Command};
-use std::{path::PathBuf, process::Stdio};
+use smol::{LocalExecutor, lock::RwLock, prelude::*};
+use tempfile::NamedTempFile;
 use url::Url;
 
 pub(crate) mod args;
+mod art;
 mod mpris;
 mod state;
 
@@ -22,16 +22,15 @@ pub(crate) async fn main_loop(
 ) -> anyhow::Result<()> {
     enum LoopEvent {
         Events(Vec<mpv::Event>),
-        ArtUrl(Url),
+        ArtFile(NamedTempFile),
     }
     let events = kanal::bounded_async(0);
-    let art_urls = kanal::bounded_async(0);
-    let mut art_task = None;
+    let (mut art, art_files) = art::State::new();
     let mut events = {
         events_tx.send(events.0)?;
         (
             events.1.stream().map(LoopEvent::Events),
-            art_urls.1.stream().map(LoopEvent::ArtUrl),
+            art_files.stream().map(LoopEvent::ArtFile),
         )
             .merge()
     };
@@ -48,7 +47,7 @@ pub(crate) async fn main_loop(
                             playlist_entry_id: value,
                         } => {
                             state.art_url = None;
-                            drop(art_task.take());
+                            art.clear();
                             state.playlist_entry_id = Some(value);
                         }
                         Event::EndFile {
@@ -67,10 +66,9 @@ pub(crate) async fn main_loop(
                     }
                 }
             }
-            LoopEvent::ArtUrl(art_url) => {
-                if state.art_url.is_none() {
-                    state.art_url = Some(art_url);
-                }
+            LoopEvent::ArtFile(file) => {
+                state.art_url = Url::from_file_path(file.path()).ok();
+                art.set_file(file);
             }
         }
         if let Some(playback_time) = seeked.take()
@@ -84,103 +82,11 @@ pub(crate) async fn main_loop(
         }
         let changes = server.imp().update(&mut state).await;
         if let Some((path, index)) = state.art_index.take() {
-            let tx = art_urls.0.clone();
-            art_task = Some(ex.spawn(art_worker(tx, path, index)));
+            art.spawn_worker(ex, path, index);
         }
         if let Err(e) = changes.emit(server.connection()).await {
             tracing::error!(error = %e, "Failed to emit changes");
         }
     }
     Ok(())
-}
-
-async fn art_worker(tx: kanal::AsyncSender<Url>, path: PathBuf, index: u64) -> Option<()> {
-    let url = Command::new("ffmpeg")
-        .arg("-i")
-        .arg(&path)
-        .arg("-map")
-        .arg(format!("0:{index}"))
-        .args(["-c", "copy", "-f", "image2pipe", "-"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .output()
-        .await
-        .ok()
-        .and_then(|output| {
-            let mime_type = infer::get(&output.stdout)?.mime_type();
-            let mut data = ["data:", mime_type, ";base64,"].concat();
-            BASE64.encode_append(&output.stdout, &mut data);
-            match Url::parse(&data) {
-                Ok(url) => Some(url),
-                Err(e) => {
-                    tracing::error!(error = %e, "Failed to extract art from {index}@{path:?}");
-                    None
-                }
-            }
-        })?;
-    if let Err(e) = tx.send(url).await {
-        tracing::error!(error = %e, "Failed to send art url");
-    }
-    Some(())
-}
-
-#[derive(Debug, Eq, PartialEq)]
-enum ArtInfo {
-    Embedded(PathBuf, u64),
-    External(Url),
-}
-
-fn art_info(
-    track_list: &[mpv::Track],
-    path: &Option<mpv::Path>,
-    working_directory: &Option<PathBuf>,
-) -> Option<ArtInfo> {
-    let path = path.as_ref().and_then(|x| match x {
-        mpv::Path::Path(path) => Some(path),
-        _ => None,
-    });
-    let working_directory = working_directory.as_ref();
-    let mut art_index = None;
-    let mut art_filename = None;
-    let track_list_len = track_list.len();
-    for track in track_list {
-        use mpv::Track;
-        match track {
-            Track::ExternalAlbumArt {
-                external_filename, ..
-            } => {
-                art_filename = working_directory.map(|w| w.join(external_filename));
-            }
-            Track::ExternalImage {
-                external_filename, ..
-            } => {
-                art_filename =
-                    art_filename.or_else(|| working_directory.map(|w| w.join(external_filename)));
-            }
-            &Track::EmbeddedAlbumArt { ff_index, .. } => {
-                art_index = Some(ff_index);
-            }
-            &Track::EmbeddedImage { ff_index, .. } => {
-                if track_list_len == 1 {
-                    art_filename = working_directory.zip(path).map(|(w, p)| w.join(p));
-                } else {
-                    art_index.get_or_insert(ff_index);
-                }
-            }
-            Track::None(_) => (),
-        }
-    }
-    let art_filename = || {
-        art_filename
-            .and_then(|path| Url::from_file_path(path).ok())
-            .map(ArtInfo::External)
-    };
-    let art_index = || {
-        art_index
-            .zip(path)
-            .map(|(index, path)| ArtInfo::Embedded(path.clone(), index))
-    };
-    art_filename().or_else(art_index)
 }

@@ -1,3 +1,4 @@
+use super::art;
 use crate::{future::FutureSyncExt, mpv};
 use mpris_server::{
     LoopStatus, Metadata, PlaybackRate, PlaybackStatus, PlayerInterface, RootInterface, Time,
@@ -439,15 +440,15 @@ impl super::Player {
         mem::swap(&mut *state, other);
 
         if let (state_art, other_art) = (
-            super::art_info(&state.track_list, &state.path, &state.working_directory),
-            super::art_info(&other.track_list, &other.path, &other.working_directory),
+            art::find(&state.track_list, &state.path, &state.working_directory),
+            art::find(&other.track_list, &other.path, &other.working_directory),
         ) && state_art != other_art
         {
             match state_art {
-                Some(super::ArtInfo::Embedded(path, index)) => {
+                Some(art::Track::Embedded(path, index)) => {
                     other.art_index = Some((path, index));
                 }
-                Some(super::ArtInfo::External(url)) => {
+                Some(art::Track::External(url)) => {
                     state.art_url = url.into();
                 }
                 _ => (),

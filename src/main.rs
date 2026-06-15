@@ -1,4 +1,5 @@
 use crate::{mpv::Mpv, plugin::Player};
+use compact_str::format_compact;
 use mpris_server::Server;
 use smol::LocalExecutor;
 use tracing_subscriber::EnvFilter;
@@ -20,7 +21,7 @@ fn main() -> anyhow::Result<()> {
             anyhow::bail!("No PID found");
         };
 
-        let name = format!("mpv.instance{}", pid);
+        let name = format_compact!("mpv.instance{}", pid);
         let server = Server::new(&name, Player::new(mpv).await?).await?;
 
         plugin::main_loop(&ex, server, events_tx).await?;
