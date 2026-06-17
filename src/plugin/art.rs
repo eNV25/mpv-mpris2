@@ -27,7 +27,7 @@ impl State {
         drop(self.file.take());
     }
 
-    pub(super) fn spawn_worker(&mut self, ex: &smol::LocalExecutor, path: PathBuf, index: u64) {
+    pub(super) fn spawn_worker(&mut self, ex: &smol::LocalExecutor, (path, index): (PathBuf, u64)) {
         self.task = Some(ex.spawn(worker(self.tx.clone(), path, index)));
     }
 

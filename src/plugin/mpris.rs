@@ -1,4 +1,4 @@
-use super::art;
+use super::{art, state::StateDiff};
 use crate::{future::FutureSyncExt, mpv};
 use mpris_server::{
     LoopStatus, Metadata, PlaybackRate, PlaybackStatus, PlayerInterface, RootInterface, Time,
@@ -6,6 +6,7 @@ use mpris_server::{
 };
 use serde::{Deserialize, Serialize};
 use smol::lock::{OnceCell, RwLockWriteGuard};
+use std::path::PathBuf;
 use std::{borrow::Cow, collections::BTreeMap, mem};
 use url::Url;
 use zbus::{fdo, names::InterfaceName, object_server::Interface, zvariant, zvariant::ObjectPath};
@@ -396,6 +397,7 @@ impl InterfaceChanges {
 pub(crate) struct PropertyChanges {
     root: InterfaceChanges,
     player: InterfaceChanges,
+    art: Option<(PathBuf, u64)>,
 }
 
 impl PropertyChanges {
@@ -407,6 +409,10 @@ impl PropertyChanges {
         self.root.emit(connection, ROOT).await?;
         self.player.emit(connection, PLAYER).await?;
         Ok(())
+    }
+
+    pub(super) fn art(&mut self) -> Option<(PathBuf, u64)> {
+        self.art.take()
     }
 
     fn change(
@@ -433,11 +439,13 @@ impl PropertyChanges {
 }
 
 impl super::Player {
-    pub(crate) async fn update(&self, other: &mut super::state::State) -> PropertyChanges {
-        use Property::*;
+    pub(crate) async fn update(&self, other: super::state::State) -> PropertyChanges {
+        use Property as P;
+        use StateDiff as S;
 
+        let mut ret = PropertyChanges::default();
         let mut state = self.state.write().await;
-        mem::swap(&mut *state, other);
+        let other = mem::replace(&mut *state, other);
 
         if let (state_art, other_art) = (
             art::find(&state.track_list, &state.path, &state.working_directory),
@@ -446,7 +454,7 @@ impl super::Player {
         {
             match state_art {
                 Some(art::Track::Embedded(path, index)) => {
-                    other.art_index = Some((path, index));
+                    ret.art = Some((path, index));
                 }
                 Some(art::Track::External(url)) => {
                     state.art_url = url.into();
@@ -455,55 +463,47 @@ impl super::Player {
             }
         }
 
-        let mut ret = PropertyChanges::default();
         let state = RwLockWriteGuard::downgrade(state);
-        if state.fullscreen != other.fullscreen {
-            ret.change(Fullscreen, state.fullscreen.into());
+        let diff = state.diff(&other);
+        if diff.contains(S::Fullscreen) {
+            ret.change(P::Fullscreen, state.fullscreen.into());
         }
-        if state.playlist_entry_id.is_some() != other.playlist_entry_id.is_some() {
-            ret.change(CanPlay, state.playlist_entry_id.is_some().into());
-            ret.change(CanPause, state.playlist_entry_id.is_some().into());
+        if diff.contains(S::PlaylistEntryId) {
+            ret.change(P::CanPlay, state.playlist_entry_id.is_some().into());
+            ret.change(P::CanPause, state.playlist_entry_id.is_some().into());
         }
-        if state.seekable != other.seekable {
-            ret.change(CanSeek, state.seekable.into());
+        if diff.contains(S::Seekable) {
+            ret.change(P::CanSeek, state.seekable.into());
         }
-        if state.playlist_current_pos != other.playlist_current_pos
-            || state.playlist_count != other.playlist_count
-        {
-            if state.playlist_has_next() != other.playlist_has_next() {
-                ret.change(CanGoNext, state.playlist_has_next().into());
-            }
-            if state.playlist_has_previous() != other.playlist_has_previous() {
-                ret.change(CanGoPrevious, state.playlist_has_previous().into());
-            }
+        if diff.intersects(S::PlaylistCurrentPos | S::PlaylistCount) {
+            ret.change(P::CanGoNext, state.playlist_has_next().into());
+            ret.change(P::CanGoPrevious, state.playlist_has_previous().into());
         }
-        if state.idle_active != other.idle_active
-            || state.eof_reached != other.eof_reached
-            || state.pause != other.pause
-        {
-            ret.change(PlaybackStatus, state.playback_status().into());
+        if diff.intersects(S::IdleActive | S::EofReached | S::Pause) {
+            ret.change(P::PlaybackStatus, state.playback_status().into());
         }
-        if state.loop_file != other.loop_file || state.loop_playlist != other.loop_playlist {
-            ret.change(LoopStatus, state.loop_status().into());
+        if diff.intersects(S::LoopFile | S::LoopPlaylist) {
+            ret.change(P::LoopStatus, state.loop_status().into());
         }
-        if state.speed != other.speed {
-            ret.change(Rate, state.speed.into());
+        if diff.contains(S::Speed) {
+            ret.change(P::Rate, state.speed.into());
         }
-        if state.shuffle != other.shuffle {
-            ret.change(Shuffle, state.shuffle.into());
+        if diff.contains(S::Shuffle) {
+            ret.change(P::Shuffle, state.shuffle.into());
         }
-        if state.volume != other.volume {
-            ret.change(Volume, state.volume().into());
+        if diff.contains(S::Volume) {
+            ret.change(P::Volume, state.volume().into());
         }
-        if state.playlist_entry_id != other.playlist_entry_id
-            || state.duration != other.duration
-            || state.media_title != other.media_title
-            || state.metadata != other.metadata
-            || state.art_url != other.art_url
-            || state.path != other.path
-            || state.working_directory != other.working_directory
-        {
-            ret.invalidate(Metadata);
+        if diff.intersects(
+            S::PlaylistEntryId
+                | S::Duration
+                | S::MediaTitle
+                | S::Metadata
+                | S::ArtUrl
+                | S::Path
+                | S::WorkingDirectory,
+        ) {
+            ret.invalidate(P::Metadata);
         }
         ret
     }

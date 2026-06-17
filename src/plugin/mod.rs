@@ -47,8 +47,8 @@ pub(crate) async fn main_loop(
                             playlist_entry_id: value,
                         } => {
                             state.art_url = None;
-                            art.clear();
                             state.playlist_entry_id = Some(value);
+                            art.clear();
                         }
                         Event::EndFile {
                             playlist_entry_id: _,
@@ -80,9 +80,9 @@ pub(crate) async fn main_loop(
         {
             tracing::error!(error = %e, "Failed to emit seeked signal");
         }
-        let changes = server.imp().update(&mut state).await;
-        if let Some((path, index)) = state.art_index.take() {
-            art.spawn_worker(ex, path, index);
+        let mut changes = server.imp().update(state).await;
+        if let Some(change) = changes.art() {
+            art.spawn_worker(ex, change);
         }
         if let Err(e) = changes.emit(server.connection()).await {
             tracing::error!(error = %e, "Failed to emit changes");

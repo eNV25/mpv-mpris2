@@ -1,9 +1,12 @@
 use crate::mpv::{self, Mpv};
+use derive_deftly::{Deftly, derive_deftly_adhoc};
+use enumflags2::{BitFlags, bitflags};
 use smol::lock::RwLock;
 use std::{collections::BTreeMap, path::PathBuf};
 use url::Url;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deftly)]
+#[derive_deftly_adhoc]
 pub(crate) struct State {
     pub(crate) fullscreen: bool,
     pub(crate) playlist_entry_id: Option<i64>,
@@ -21,11 +24,11 @@ pub(crate) struct State {
     pub(crate) duration: mpv::Seconds,
     pub(crate) media_title: String,
     pub(crate) metadata: BTreeMap<mpv::MetadataKey, String>,
-    pub(crate) track_list: Vec<mpv::Track>,
     pub(crate) path: Option<mpv::Path>,
     pub(crate) working_directory: Option<PathBuf>,
     pub(crate) art_url: Option<Url>,
-    pub(crate) art_index: Option<(PathBuf, u64)>,
+    #[deftly(skip)]
+    pub(crate) track_list: Vec<mpv::Track>,
 }
 
 impl super::Player {
@@ -56,7 +59,6 @@ impl super::Player {
             path: property(&mpv, "path").await?,
             working_directory: property(&mpv, "working-directory").await?,
             art_url: None,
-            art_index: None,
         });
         Ok(Self { mpv, state })
     }
@@ -124,6 +126,33 @@ impl State {
             KnownProperty::WorkingDirectory(working_directory) => {
                 self.working_directory = working_directory;
             }
+        }
+    }
+}
+
+derive_deftly_adhoc! {
+    State:
+
+    #[bitflags]
+    #[repr(u32)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub(super) enum StateDiff {
+        $(
+            ${when not(fmeta(skip))}
+            ${pascal_case $fname},
+        )
+    }
+
+    impl State {
+        pub(super) fn diff(&self, other: &Self) -> BitFlags<StateDiff> {
+            let mut diff = BitFlags::empty();
+            $(
+                ${when not(fmeta(skip))}
+                if self.$fname != other.$fname {
+                    diff |= StateDiff::${pascal_case $fname};
+                }
+            )
+            diff
         }
     }
 }
