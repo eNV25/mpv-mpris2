@@ -1,13 +1,14 @@
 #![allow(unused)]
 
 use compact_str::CompactString;
+use derive_deftly::{Deftly, derive_deftly_adhoc};
 use serde::{Deserialize, Serialize, Serializer, de::IgnoredAny, ser, ser::SerializeSeq};
 use serde_constant::ConstBool;
 use serde_json::Value;
 use serde_variant::to_variant_name;
 use serde_with::DeserializeFromStr;
 use std::{collections::BTreeMap, fmt::Debug, path::PathBuf};
-use strum::{EnumDiscriminants, EnumString};
+use strum::EnumString;
 use url::Url;
 
 #[derive(Serialize)]
@@ -43,8 +44,8 @@ impl From<NamedCommand> for Command {
     }
 }
 
-#[derive(EnumDiscriminants)]
-#[strum_discriminants(derive(Serialize), serde(rename_all = "snake_case"))]
+#[derive(Deftly)]
+#[derive_deftly_adhoc]
 pub(crate) enum ListCommand {
     ClientName,
     GetTimeUs,
@@ -56,7 +57,10 @@ pub(crate) enum ListCommand {
     ObservePropertyString(i64, &'static str),
     UnobserveProperty(i64),
     GetVersion,
-    Cycle(&'static str, Option<CycleDirection>),
+    Cycle(
+        &'static str,
+        #[deftly(skip_serializing_if = "Option::is_none")] Option<CycleDirection>,
+    ),
 }
 
 #[derive(Serialize)]
@@ -65,64 +69,29 @@ pub(crate) enum CycleDirection {
     Down,
 }
 
-impl Serialize for ListCommand {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        use ListCommandDiscriminants::*;
-        let mut seq = serializer.serialize_seq(None)?;
-        match self {
-            ListCommand::ClientName => {
-                seq.serialize_element(&ClientName)?;
+derive_deftly_adhoc! {
+    ListCommand:
+
+    impl Serialize for ListCommand {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let mut seq = serializer.serialize_seq(None)?;
+            match self {
+                $($vpat => {
+                    seq.serialize_element(stringify!(${snake_case $vname}))?;
+                    $(${select1 fmeta(skip_serializing_if) {
+                        if !${fmeta(skip_serializing_if) as path}($fpatname) {
+                            seq.serialize_element(&$fpatname)?;
+                        }
+                    } else {
+                        seq.serialize_element(&$fpatname)?;
+                    }})
+                })
             }
-            ListCommand::GetTimeUs => {
-                seq.serialize_element(&GetTimeUs)?;
-            }
-            ListCommand::GetProperty(x) => {
-                seq.serialize_element(&GetProperty)?;
-                seq.serialize_element(x)?;
-            }
-            ListCommand::GetPropertyString(x) => {
-                seq.serialize_element(&GetPropertyString)?;
-                seq.serialize_element(x)?;
-            }
-            ListCommand::SetProperty(x, y) => {
-                seq.serialize_element(&SetProperty)?;
-                seq.serialize_element(x)?;
-                seq.serialize_element(y)?;
-            }
-            ListCommand::SetPropertyString(x, y) => {
-                seq.serialize_element(&SetPropertyString)?;
-                seq.serialize_element(x)?;
-                seq.serialize_element(y)?;
-            }
-            ListCommand::ObserveProperty(x, y) => {
-                seq.serialize_element(&ObserveProperty)?;
-                seq.serialize_element(x)?;
-                seq.serialize_element(y)?;
-            }
-            ListCommand::ObservePropertyString(x, y) => {
-                seq.serialize_element(&ObservePropertyString)?;
-                seq.serialize_element(x)?;
-                seq.serialize_element(y)?;
-            }
-            ListCommand::UnobserveProperty(x) => {
-                seq.serialize_element(&UnobserveProperty)?;
-                seq.serialize_element(x)?;
-            }
-            ListCommand::GetVersion => {
-                seq.serialize_element(&GetVersion)?;
-            }
-            ListCommand::Cycle(x, y) => {
-                seq.serialize_element(&Cycle)?;
-                seq.serialize_element(x)?;
-                if let Some(y) = y {
-                    seq.serialize_element(y)?;
-                }
-            }
+            seq.end()
         }
-        seq.end()
     }
 }
 
