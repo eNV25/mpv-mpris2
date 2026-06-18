@@ -83,10 +83,10 @@ derive_deftly_adhoc! {
                     seq.serialize_element(stringify!(${snake_case $vname}))?;
                     $(${select1 fmeta(skip_serializing_if) {
                         if !${fmeta(skip_serializing_if) as path}($fpatname) {
-                            seq.serialize_element(&$fpatname)?;
+                            seq.serialize_element($fpatname)?;
                         }
                     } else {
-                        seq.serialize_element(&$fpatname)?;
+                        seq.serialize_element($fpatname)?;
                     }})
                 })
             }
