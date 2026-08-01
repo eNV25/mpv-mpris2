@@ -18,27 +18,24 @@ pub(crate) struct Player {
 pub(crate) async fn main_loop(
     ex: &LocalExecutor<'_>,
     server: mpris_server::Server<Player>,
-    events_tx: oneshot::Sender<kanal::AsyncSender<Vec<mpv::Event>>>,
+    handshake_tx: oneshot::Sender<kanal::AsyncSender<Vec<mpv::Event>>>,
 ) -> anyhow::Result<()> {
     enum LoopEvent {
-        Events(Vec<mpv::Event>),
+        MpvEvents(Vec<mpv::Event>),
         ArtFile(NamedTempFile),
     }
-    let events = kanal::bounded_async(0);
+    let events = Mpv::subscribe(handshake_tx)?;
     let (mut art, art_files) = art::State::new();
     let mut events = {
-        events_tx.send(events.0)?;
-        (
-            events.1.stream().map(LoopEvent::Events),
-            art_files.stream().map(LoopEvent::ArtFile),
-        )
-            .merge()
+        let events = events.stream().map(LoopEvent::MpvEvents);
+        let art_files = art_files.stream().map(LoopEvent::ArtFile);
+        (events, art_files).merge()
     };
     while let Some(loop_event) = events.next().await {
         let mut state = server.imp().state().await;
         let mut seeked = None;
         match loop_event {
-            LoopEvent::Events(events) => {
+            LoopEvent::MpvEvents(events) => {
                 use mpv::{Event, Property};
                 for event in events {
                     match event {

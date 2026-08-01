@@ -15,7 +15,7 @@ fn main() -> anyhow::Result<()> {
 
     let ex = LocalExecutor::new();
     smol::block_on(ex.run(async {
-        let (mpv, events_tx) = Mpv::new(&ex, plugin::args::mpv_ipc_fd()?.try_into()?);
+        let (mpv, handshake_tx) = Mpv::new(&ex, plugin::args::mpv_ipc_fd()?.try_into()?);
 
         let Some(pid): Option<usize> = mpv.get_property("pid").await? else {
             anyhow::bail!("No PID found");
@@ -24,7 +24,7 @@ fn main() -> anyhow::Result<()> {
         let name = format_compact!("mpv.instance{}", pid);
         let server = Server::new(&name, Player::new(mpv).await?).await?;
 
-        plugin::main_loop(&ex, server, events_tx).await?;
+        plugin::main_loop(&ex, server, handshake_tx).await?;
 
         Ok(())
     }))

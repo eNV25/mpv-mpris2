@@ -20,11 +20,19 @@ impl Mpv {
         ex: &LocalExecutor,
         stream: UnixStream,
     ) -> (Self, oneshot::Sender<kanal::AsyncSender<Vec<Event>>>) {
-        let (requests_tx, requests) = kanal::bounded_async(0);
-        let (events_tx_tx, events_tx) = oneshot::async_channel();
-        ex.spawn(MpvIpcWorker::new(stream, requests, events_tx).run())
+        let (requests_tx, requests_rx) = kanal::bounded_async(0);
+        let (handshake_tx, handshake_rx) = oneshot::async_channel();
+        ex.spawn(MpvIpcWorker::new(stream, requests_rx, handshake_rx).run())
             .detach();
-        (Self { requests_tx }, events_tx_tx)
+        (Self { requests_tx }, handshake_tx)
+    }
+
+    pub(crate) fn subscribe(
+        handshake_tx: oneshot::Sender<kanal::AsyncSender<Vec<Event>>>,
+    ) -> anyhow::Result<kanal::AsyncReceiver<Vec<Event>>> {
+        let (events_tx, events) = kanal::bounded_async(0);
+        handshake_tx.send(events_tx)?;
+        Ok(events)
     }
 
     pub(crate) async fn run_command<T>(&self, command: impl Into<Command>) -> Result<T>

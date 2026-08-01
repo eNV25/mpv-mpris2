@@ -12,7 +12,7 @@ use std::{
 pub(super) struct MpvIpcWorker {
     stream: UnixStream,
     requests: kanal::AsyncReceiver<(Command, oneshot::Sender<Result<serde_json::Value, String>>)>,
-    events_tx: oneshot::AsyncReceiver<kanal::AsyncSender<Vec<Event>>>,
+    events_handshake: oneshot::AsyncReceiver<kanal::AsyncSender<Vec<Event>>>,
 }
 
 impl MpvIpcWorker {
@@ -22,12 +22,12 @@ impl MpvIpcWorker {
             Command,
             oneshot::Sender<Result<serde_json::Value, String>>,
         )>,
-        events_tx: oneshot::AsyncReceiver<kanal::AsyncSender<Vec<Event>>>,
+        events_handshake: oneshot::AsyncReceiver<kanal::AsyncSender<Vec<Event>>>,
     ) -> Self {
         Self {
             stream,
             requests,
-            events_tx,
+            events_handshake,
         }
     }
 
@@ -79,24 +79,25 @@ impl MpvIpcWorker {
         }
 
         let mut stream = {
-            let events_tx = stream::once_future(future::poll_fn(move |cx| {
-                self.events_tx.poll(cx).map(WorkerEvent::EventsSender)
+            let events_sender = stream::once_future(future::poll_fn(move |cx| {
+                self.events_handshake
+                    .poll(cx)
+                    .map(WorkerEvent::EventsSender)
             }));
             let lines = BufReader::new(self.stream.clone()).split(b'\n');
             let responses = stream::unfold(Some(lines), batch_ready_responses);
             let requests = self.requests.stream().map(WorkerEvent::Command);
-            (events_tx, responses, requests).merge()
+            (events_sender, responses, requests).merge()
         };
         let mut requests: Slab<oneshot::Sender<Result<serde_json::Value, String>>> = Slab::new();
         let mut events = Vec::new();
-        let mut events_tx = None;
+        let mut events_sender = None;
 
         let mut seeking = false;
         while let Some(worker_event) = stream.next().await {
-            let mut seeked = false;
             match worker_event {
-                WorkerEvent::EventsSender(Ok(new_events_tx)) => {
-                    events_tx = Some(new_events_tx);
+                WorkerEvent::EventsSender(Ok(new_events_sender)) => {
+                    events_sender = Some(new_events_sender);
                 }
                 WorkerEvent::EventsSender(Err(e)) => {
                     tracing::error!(error = %e, "Failed to receive events sender");
@@ -133,7 +134,18 @@ impl MpvIpcWorker {
                                 match event {
                                     Event::Seek => seeking = true,
                                     Event::PlaybackRestart if seeking => {
-                                        (seeking, seeked) = (false, true);
+                                        seeking = false;
+                                        let request = Request {
+                                            command: ListCommand::GetProperty("playback-time")
+                                                .into(),
+                                            request_id: i64::MIN,
+                                            r#async: Default::default(),
+                                        };
+                                        if let Err(e) =
+                                            send_request(&mut self.stream, request).await
+                                        {
+                                            tracing::error!(error = %e, "Failed to send IPC request");
+                                        }
                                     }
                                     _ => (),
                                 }
@@ -164,26 +176,16 @@ impl MpvIpcWorker {
                     }
                 }
             }
-            if seeked {
-                let request = Request {
-                    command: ListCommand::GetProperty("playback-time").into(),
-                    request_id: i64::MIN,
-                    r#async: Default::default(),
-                };
-                if let Err(e) = send_request(&mut self.stream, request).await {
-                    tracing::error!(error = %e, "Failed to send IPC request");
-                }
-            }
             if !events.is_empty()
-                && let Some(event_tx) = &events_tx
+                && let Some(sender) = &events_sender
                 && let events = mem::take(&mut events)
-                && let Err(e) = event_tx.send(events).await
+                && let Err(e) = sender.send(events).await
             {
                 tracing::error!(error = %e, "Failed to send MPV event");
             }
         }
-        if let Some(events_tx) = events_tx.take()
-            && let Err(e) = events_tx.close()
+        if let Some(sender) = events_sender.take()
+            && let Err(e) = sender.close()
         {
             tracing::error!(error = %e, "Failed to close MPV events sender");
         }
