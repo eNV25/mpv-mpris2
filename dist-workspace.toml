@@ -4,7 +4,7 @@ members = ["cargo:."]
 [dist]
 dist = true
 cargo-dist-version = "0.32.0"
-packages = ["mpris"]
+packages = ["mpv-mpris2"]
 targets = ["x86_64-unknown-linux-musl"]
 cargo-auditable = true
 unix-archive = ".tar.zst"
