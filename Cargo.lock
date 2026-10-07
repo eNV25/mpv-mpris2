@@ -429,9 +429,9 @@ dependencies = [
 
 [[package]]
 name = "derive-deftly"
-version = "1.11.5"
+version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98e02cd118058400797c74550dca132b57cf2e6af0e9ea0672a83eb186fd655e"
+checksum = "f6debbbeb52f2c20f57ff5974f0c8de9e6d5f751c347446be3bdff51e652361e"
 dependencies = [
  "derive-deftly-macros",
  "heck",
@@ -439,9 +439,9 @@ dependencies = [
 
 [[package]]
 name = "derive-deftly-macros"
-version = "1.11.5"
+version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba91f619216e76a5eb2515783f7ec2e271938b51aadac592f4930517f4626863"
+checksum = "c5b750ecd2b841f45e77cdcc4f8423cb9503cdd579cfafaffebeb6accafbad87"
 dependencies = [
  "heck",
  "indexmap 2.14.1",
@@ -1028,7 +1028,7 @@ dependencies = [
 
 [[package]]
 name = "mpv-mpris2"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "compact_str",
