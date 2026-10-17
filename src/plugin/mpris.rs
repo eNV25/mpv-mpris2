@@ -7,7 +7,7 @@ use mpris_server::{
 use serde::{Deserialize, Serialize};
 use smol::lock::{OnceCell, RwLockWriteGuard};
 use std::path::PathBuf;
-use std::{borrow::Cow, collections::BTreeMap, mem};
+use std::{borrow::Cow, collections::BTreeMap, env, fs, mem, sync::OnceLock};
 use url::Url;
 use zbus::{fdo, names::InterfaceName, object_server::Interface, zvariant, zvariant::ObjectPath};
 
@@ -18,7 +18,7 @@ impl RootInterface for super::Player {
 
     async fn quit(&self) -> fdo::Result<()> {
         let cmd = mpv::NamedCommand::Quit { code: None };
-        Ok(self.mpv.run_command(cmd).sync().await?)
+        Ok(self.mpv.command(cmd).sync().await?)
     }
 
     async fn can_quit(&self) -> fdo::Result<bool> {
@@ -55,66 +55,59 @@ impl RootInterface for super::Player {
 
     async fn supported_uri_schemes(&self) -> fdo::Result<Vec<String>> {
         static SUPPORTED_URI_SCHEMES: OnceCell<Vec<String>> = OnceCell::new();
-        Ok(SUPPORTED_URI_SCHEMES
-            .get_or_init(|| async {
-                self.mpv
-                    .get_property::<String>("protocol-list")
-                    .sync()
-                    .await
-                    .ok()
-                    .iter()
-                    .flat_map(|s| s.split(','))
-                    .map(str::to_owned)
-                    .collect()
+        let schemes = SUPPORTED_URI_SCHEMES
+            .get_or_try_init(|| async {
+                // A list, not a comma-separated string. Some entries repeat.
+                let mut schemes: Vec<String> =
+                    self.mpv.get_property("protocol-list").sync().await?;
+                schemes.sort_unstable();
+                schemes.dedup();
+                Ok::<_, mpv::Error>(schemes)
             })
-            .await
-            .clone())
+            .await?;
+        Ok(schemes.clone())
     }
 
     async fn supported_mime_types(&self) -> fdo::Result<Vec<String>> {
-        #[crabtime::function]
-        fn define_mpv_mime_types(pattern!($name:ident): _) {
-            let value = format!(
-                "{:?}",
-                std::env::var("XDG_DATA_DIRS")
-                    .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_owned())
-                    .split(':')
-                    .filter_map(|dir| {
-                        let path = std::path::Path::new(dir).join("applications/mpv.desktop");
-                        std::fs::read_to_string(path).ok()
-                    })
-                    .find_map(|content| {
-                        content.lines().find_map(|line| {
-                            line.strip_prefix("MimeType=").map(|v| {
-                                v.split_terminator(';')
-                                    .map(str::to_owned)
-                                    .collect::<Vec<_>>()
-                            })
-                        })
-                    })
-                    .expect(
-                        "Failed to find mpv.desktop at build time. Ensure mpv is installed, or set XDG_DATA_DIRS appropriately."
-                    )
-            );
-            _ = value;
-            crabtime::output! {
-                const $name: &[&str] = &{{value}};
-            }
-        }
-        define_mpv_mime_types!(MPV_MIME_TYPES);
-        Ok(MPV_MIME_TYPES.iter().map(|&x| x.to_owned()).collect())
+        static MIME_TYPES: OnceLock<Vec<String>> = OnceLock::new();
+        Ok(MIME_TYPES.get_or_init(mpv_desktop_mime_types).clone())
     }
+}
+
+/// Reads the `MimeType` list from mpv's desktop entry.
+fn mpv_desktop_mime_types() -> Vec<String> {
+    let data_home = env::var_os("XDG_DATA_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")));
+    let data_dirs = env::var_os("XDG_DATA_DIRS")
+        .filter(|dirs| !dirs.is_empty())
+        .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    data_home
+        .into_iter()
+        .chain(env::split_paths(&data_dirs))
+        .filter_map(|dir| fs::read_to_string(dir.join("applications/mpv.desktop")).ok())
+        .find_map(|entry| {
+            entry.lines().find_map(|line| {
+                let types = line.strip_prefix("MimeType=")?;
+                Some(types.split_terminator(';').map(str::to_owned).collect())
+            })
+        })
+        .unwrap_or_else(|| {
+            tracing::error!("Failed to find MimeType in mpv.desktop");
+            Vec::new()
+        })
 }
 
 impl PlayerInterface for super::Player {
     async fn next(&self) -> fdo::Result<()> {
         let cmd = mpv::NamedCommand::PlaylistNext { flags: None };
-        Ok(self.mpv.run_command(cmd).sync().await?)
+        Ok(self.mpv.command(cmd).sync().await?)
     }
 
     async fn previous(&self) -> fdo::Result<()> {
         let cmd = mpv::NamedCommand::PlaylistPrev { flags: None };
-        Ok(self.mpv.run_command(cmd).sync().await?)
+        Ok(self.mpv.command(cmd).sync().await?)
     }
 
     async fn pause(&self) -> fdo::Result<()> {
@@ -123,7 +116,7 @@ impl PlayerInterface for super::Player {
 
     async fn play_pause(&self) -> fdo::Result<()> {
         let cmd = mpv::ListCommand::Cycle("pause", None);
-        Ok(self.mpv.run_command(cmd).sync().await?)
+        Ok(self.mpv.command(cmd).sync().await?)
     }
 
     async fn stop(&self) -> fdo::Result<()> {
@@ -133,7 +126,7 @@ impl PlayerInterface for super::Player {
             target: 0.0.into(),
             flags: Some(Absolute.into()),
         };
-        Ok(self.mpv.run_command(cmd).sync().await?)
+        Ok(self.mpv.command(cmd).sync().await?)
     }
 
     async fn play(&self) -> fdo::Result<()> {
@@ -146,7 +139,7 @@ impl PlayerInterface for super::Player {
             target: offset.into(),
             flags: Some((Relative, Exact).into()),
         };
-        Ok(self.mpv.run_command(cmd).sync().await?)
+        Ok(self.mpv.command(cmd).sync().await?)
     }
 
     async fn set_position(&self, track_id: TrackId, position: Time) -> fdo::Result<()> {
@@ -170,7 +163,7 @@ impl PlayerInterface for super::Player {
             index: None,
             options: None,
         };
-        Ok(self.mpv.run_command(cmd).sync().await?)
+        Ok(self.mpv.command(cmd).sync().await?)
     }
 
     async fn playback_status(&self) -> fdo::Result<PlaybackStatus> {
@@ -210,6 +203,10 @@ impl PlayerInterface for super::Player {
     }
 
     async fn set_rate(&self, rate: PlaybackRate) -> zbus::Result<()> {
+        // The spec says a rate of 0.0 should act like Pause.
+        if rate == 0.0 {
+            return Ok(self.mpv.set_property("pause", true).sync().await?);
+        }
         Ok(self.mpv.set_property("speed", rate).sync().await?)
     }
 
@@ -218,12 +215,23 @@ impl PlayerInterface for super::Player {
     }
 
     async fn set_shuffle(&self, shuffle: bool) -> zbus::Result<()> {
+        // Don't reshuffle if already shuffled.
+        if self.state.read().await.shuffle == shuffle {
+            return Ok(());
+        }
+        // Changing mpv's `shuffle` option doesn't reorder the current playlist,
+        // so do that explicitly. The option is still set so `Shuffle` follows.
+        let cmd = if shuffle {
+            mpv::NamedCommand::PlaylistShuffle
+        } else {
+            mpv::NamedCommand::PlaylistUnshuffle
+        };
+        self.mpv.command(cmd).sync().await?;
         Ok(self.mpv.set_property("shuffle", shuffle).sync().await?)
     }
 
     async fn metadata(&self) -> fdo::Result<Metadata> {
-        let state = self.state.read().await;
-        state.metadata().map_err(fdo::Error::Failed)
+        Ok(self.state.read().await.metadata())
     }
 
     async fn volume(&self) -> fdo::Result<Volume> {
@@ -231,13 +239,19 @@ impl PlayerInterface for super::Player {
     }
 
     async fn set_volume(&self, volume: Volume) -> zbus::Result<()> {
-        let volume = volume * 100.0;
+        // The spec says negative values should set the volume to 0.
+        let volume = volume.max(0.0) * 100.0;
         Ok(self.mpv.set_property("volume", volume).sync().await?)
     }
 
     async fn position(&self) -> fdo::Result<Time> {
-        let position: mpv::Seconds = self.mpv.get_property("playback-time").sync().await?;
-        Ok(position.into())
+        let position = self.mpv.get_property::<mpv::Seconds>("playback-time");
+        match position.sync().await {
+            Ok(position) => Ok(position.into()),
+            // Nothing is loaded.
+            Err(e) if e.is_property_unavailable() => Ok(Time::ZERO),
+            Err(e) => Err(e.into()),
+        }
     }
 
     async fn minimum_rate(&self) -> fdo::Result<PlaybackRate> {
@@ -305,14 +319,14 @@ impl super::state::State {
         }
     }
 
-    pub(super) fn metadata(&self) -> Result<Metadata, String> {
+    pub(super) fn metadata(&self) -> Metadata {
         let track_id = ObjectPath::from_string_unchecked({
             let Some(playlist_entry_id) = self.playlist_entry_id else {
-                return Ok(MetadataBuilder::default()
+                return MetadataBuilder::default()
                     .trackid(ObjectPath::from_string_unchecked(
                         "/org/mpris/MediaPlayer2/TrackList/NoTrack".into(),
                     ))
-                    .build());
+                    .build();
             };
             format!("/io/mpv/playlist_entry_id/{playlist_entry_id}")
         });
@@ -355,7 +369,7 @@ impl super::state::State {
                 _ => (),
             }
         }
-        Ok(metadata)
+        metadata
     }
 
     pub(super) fn volume(&self) -> Volume {
@@ -366,28 +380,26 @@ impl super::state::State {
 #[derive(Default)]
 struct InterfaceChanges {
     changed: BTreeMap<Property, zvariant::Value<'static>>,
-    invalid: Vec<Property>,
 }
 
 impl InterfaceChanges {
-    fn is_empty(&self) -> bool {
-        self.changed.is_empty() && self.invalid.is_empty()
-    }
     async fn emit(
         &self,
         connection: &zbus::Connection,
         interface: InterfaceName<'static>,
     ) -> zbus::Result<()> {
-        if self.is_empty() {
+        if self.changed.is_empty() {
             return Ok(());
         }
+        // Every property is sent with its new value, so none are invalidated.
+        let invalidated: &[Property] = &[];
         connection
             .emit_signal(
                 None::<zbus::names::BusName<'static>>,
                 "/org/mpris/MediaPlayer2",
                 fdo::Properties::name(),
                 "PropertiesChanged",
-                &(interface, &self.changed, self.invalid.as_slice()),
+                &(interface, &self.changed, invalidated),
             )
             .await
     }
@@ -426,15 +438,6 @@ impl PropertyChanges {
             &mut self.player.changed
         }
         .insert(property, value)
-    }
-
-    fn invalidate(&mut self, property: Property) {
-        if property.is_root() {
-            &mut self.root.invalid
-        } else {
-            &mut self.player.invalid
-        }
-        .push(property);
     }
 }
 
@@ -503,7 +506,9 @@ impl super::Player {
                 | S::Path
                 | S::WorkingDirectory,
         ) {
-            ret.invalidate(P::Metadata);
+            // The spec requires the new value, and clients that cache
+            // properties (e.g. `playerctl --follow`) don't refetch invalidated ones.
+            ret.change(P::Metadata, state.metadata().into());
         }
         ret
     }

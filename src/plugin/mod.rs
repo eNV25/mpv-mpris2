@@ -47,14 +47,16 @@ pub(crate) async fn main_loop(
                             state.playlist_entry_id = Some(value);
                             art.clear();
                         }
-                        Event::EndFile {
-                            playlist_entry_id: _,
-                            ..
-                        } => {
+                        Event::EndFile { .. } => {
                             state.playlist_entry_id = None;
                         }
                         Event::PropertyChange(Property::Known(property)) => {
                             state.change(property);
+                        }
+                        // Every observed property is a `KnownProperty`, so this
+                        // means its value didn't match the expected type.
+                        Event::PropertyChange(Property::Unknown { name, data }) => {
+                            tracing::error!(%name, %data, "Failed to parse property change");
                         }
                         Event::Seeked { playback_time } => {
                             seeked = Some(playback_time);

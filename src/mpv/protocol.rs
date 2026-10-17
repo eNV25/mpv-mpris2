@@ -127,6 +127,8 @@ pub(crate) enum NamedCommand {
         #[serde(skip_serializing_if = "Option::is_none")]
         flags: Option<PlaylistFlags>,
     },
+    PlaylistShuffle,
+    PlaylistUnshuffle,
     Quit {
         #[serde(skip_serializing_if = "Option::is_none")]
         code: Option<i64>,
@@ -303,7 +305,8 @@ pub(crate) enum Property {
 #[serde(tag = "name", content = "data", rename_all = "kebab-case")]
 pub(crate) enum KnownProperty {
     Fullscreen(#[serde(default)] Option<bool>),
-    PlaylistCurrentPos(#[serde(default)] Option<u64>),
+    // -1 when there is no current entry, e.g. after `stop`.
+    PlaylistCurrentPos(#[serde(default)] Option<i64>),
     PlaylistCount(#[serde(default)] Option<u64>),
     Seekable(#[serde(default)] Option<bool>),
     IdleActive(#[serde(default)] Option<bool>),
@@ -335,7 +338,7 @@ impl From<LoopData> for bool {
         match value {
             LoopData::Bool(b) => b,
             LoopData::Number(n) => n != 0,
-            LoopData::Variant(LoopVariant::Inf) => true,
+            LoopData::Variant(LoopVariant::Inf | LoopVariant::Force) => true,
             LoopData::Variant(LoopVariant::No) => false,
         }
     }
@@ -346,6 +349,8 @@ impl From<LoopData> for bool {
 pub(crate) enum LoopVariant {
     Inf,
     No,
+    // Only valid for `loop-playlist`.
+    Force,
 }
 
 #[derive(Clone, Debug, DeserializeFromStr, EnumString, Eq, Ord, PartialEq, PartialOrd)]

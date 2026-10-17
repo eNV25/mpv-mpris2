@@ -76,7 +76,9 @@ impl State {
                 self.fullscreen = fullscreen.unwrap_or_default();
             }
             KnownProperty::PlaylistCurrentPos(playlist_current_pos) => {
-                self.playlist_current_pos = playlist_current_pos;
+                // Negative means there is no current entry.
+                self.playlist_current_pos =
+                    playlist_current_pos.and_then(|pos| u64::try_from(pos).ok());
             }
             KnownProperty::PlaylistCount(playlist_count) => {
                 self.playlist_count = playlist_count;

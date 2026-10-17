@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 use url::Url;
 
 pub(super) struct State {
-    task: Option<smol::Task<anyhow::Result<()>>>,
+    task: Option<smol::Task<()>>,
     file: Option<NamedTempFile>,
     tx: kanal::AsyncSender<NamedTempFile>,
 }
@@ -28,7 +28,12 @@ impl State {
     }
 
     pub(super) fn spawn_worker(&mut self, ex: &smol::LocalExecutor, (path, index): (PathBuf, u64)) {
-        self.task = Some(ex.spawn(worker(self.tx.clone(), path, index)));
+        let tx = self.tx.clone();
+        self.task = Some(ex.spawn(async move {
+            if let Err(e) = worker(tx, path, index).await {
+                tracing::error!(error = %e, "Failed to extract embedded art");
+            }
+        }));
     }
 
     pub(super) fn set_file(&mut self, file: NamedTempFile) {
@@ -45,7 +50,7 @@ async fn worker(
         .prefix("mpv-mpris2-art-")
         .suffix(".jpg")
         .tempfile()?;
-    _ = Command::new("ffmpeg")
+    let status = Command::new("ffmpeg")
         .arg("-i")
         .arg(&path)
         .arg("-map")
@@ -58,6 +63,11 @@ async fn worker(
         .spawn()?
         .status()
         .await?;
+    anyhow::ensure!(status.success(), "ffmpeg failed: {status}");
+    anyhow::ensure!(
+        file.as_file().metadata()?.len() > 0,
+        "ffmpeg wrote no image"
+    );
     if let Err(e) = tx.send(file).await {
         tracing::error!(error = %e, "Failed to send art url");
     }
