@@ -19,13 +19,12 @@ pub(crate) struct Player {
 pub(crate) async fn main_loop(
     runtime: &LocalRuntime,
     server: mpris_server::Server<Player>,
-    handshake_tx: oneshot::Sender<kanal::AsyncSender<Vec<mpv::Event>>>,
+    events: kanal::AsyncReceiver<Vec<mpv::Event>>,
 ) -> anyhow::Result<()> {
     enum LoopEvent {
         MpvEvents(Vec<mpv::Event>),
         ArtFile(NamedTempFile),
     }
-    let events = Mpv::subscribe(handshake_tx)?;
     let (mut art, art_files) = art::State::new();
     let mut events = {
         let events = events.stream().map(LoopEvent::MpvEvents);
@@ -48,7 +47,7 @@ pub(crate) async fn main_loop(
                             state.playlist_entry_id = Some(value);
                             art.clear();
                         }
-                        Event::EndFile { .. } => {
+                        Event::EndFile => {
                             state.playlist_entry_id = None;
                         }
                         Event::PropertyChange(Property::Known(property)) => {
@@ -80,11 +79,11 @@ pub(crate) async fn main_loop(
         {
             tracing::error!(error = %e, "Failed to emit seeked signal");
         }
-        let mut changes = server.imp().update(state).await;
-        if let Some(change) = changes.art() {
-            art.spawn_worker(runtime, change);
+        let changes = server.imp().update(state).await;
+        if let Some((path, index)) = changes.embedded_art {
+            art.spawn_worker(runtime, path, index);
         }
-        if let Err(e) = changes.emit(server.connection()).await {
+        if let Err(e) = server.properties_changed(changes.properties).await {
             tracing::error!(error = %e, "Failed to emit changes");
         }
     }

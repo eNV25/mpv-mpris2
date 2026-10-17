@@ -3,6 +3,7 @@ use derive_deftly::{Deftly, derive_deftly_adhoc};
 use enumflags2::{BitFlags, bitflags};
 use zruntime::lock::RwLock;
 use std::{collections::BTreeMap, path::PathBuf};
+use strum::IntoEnumIterator;
 use url::Url;
 
 #[derive(Clone, Debug, Default, Deftly)]
@@ -33,33 +34,12 @@ pub(crate) struct State {
 
 impl super::Player {
     pub(crate) async fn new(mpv: Mpv) -> Result<Self, mpv::Error> {
-        async fn property<T: Default>(mpv: &Mpv, name: &'static str) -> Result<T, mpv::Error> {
+        // Observe every property `State::change` handles. mpv sends each one's
+        // current value as a property-change event, which `main_loop` applies.
+        for name in mpv::KnownPropertyName::iter() {
             mpv.observe_property(name).await?;
-            Ok(Default::default())
         }
-
-        let state = RwLock::new(State {
-            fullscreen: property(&mpv, "fullscreen").await?,
-            playlist_entry_id: None,
-            playlist_current_pos: property(&mpv, "playlist-current-pos").await?,
-            playlist_count: property(&mpv, "playlist-count").await?,
-            seekable: property(&mpv, "seekable").await?,
-            idle_active: property(&mpv, "idle-active").await?,
-            eof_reached: property(&mpv, "eof-reached").await?,
-            pause: property(&mpv, "pause").await?,
-            loop_file: property(&mpv, "loop-file").await?,
-            loop_playlist: property(&mpv, "loop-playlist").await?,
-            speed: property(&mpv, "speed").await?,
-            shuffle: property(&mpv, "shuffle").await?,
-            volume: property(&mpv, "volume").await?,
-            duration: property(&mpv, "duration").await?,
-            media_title: property(&mpv, "media-title").await?,
-            metadata: property(&mpv, "metadata").await?,
-            track_list: property(&mpv, "track-list").await?,
-            path: property(&mpv, "path").await?,
-            working_directory: property(&mpv, "working-directory").await?,
-            art_url: None,
-        });
+        let state = RwLock::new(State::default());
         Ok(Self { mpv, state })
     }
 
@@ -72,61 +52,60 @@ impl State {
     pub(crate) fn change(&mut self, property: mpv::KnownProperty) {
         use mpv::KnownProperty;
         match property {
-            KnownProperty::Fullscreen(fullscreen) => {
-                self.fullscreen = fullscreen.unwrap_or_default();
+            KnownProperty::Fullscreen { data } => {
+                self.fullscreen = data.unwrap_or_default();
             }
-            KnownProperty::PlaylistCurrentPos(playlist_current_pos) => {
+            KnownProperty::PlaylistCurrentPos { data } => {
                 // Negative means there is no current entry.
-                self.playlist_current_pos =
-                    playlist_current_pos.and_then(|pos| u64::try_from(pos).ok());
+                self.playlist_current_pos = data.and_then(|pos| u64::try_from(pos).ok());
             }
-            KnownProperty::PlaylistCount(playlist_count) => {
-                self.playlist_count = playlist_count;
+            KnownProperty::PlaylistCount { data } => {
+                self.playlist_count = data;
             }
-            KnownProperty::Seekable(seekable) => {
-                self.seekable = seekable.unwrap_or_default();
+            KnownProperty::Seekable { data } => {
+                self.seekable = data.unwrap_or_default();
             }
-            KnownProperty::IdleActive(idle_active) => {
-                self.idle_active = idle_active.unwrap_or_default();
+            KnownProperty::IdleActive { data } => {
+                self.idle_active = data.unwrap_or_default();
             }
-            KnownProperty::EofReached(eof_reached) => {
-                self.eof_reached = eof_reached.unwrap_or_default();
+            KnownProperty::EofReached { data } => {
+                self.eof_reached = data.unwrap_or_default();
             }
-            KnownProperty::Pause(pause) => {
-                self.pause = pause.unwrap_or_default();
+            KnownProperty::Pause { data } => {
+                self.pause = data.unwrap_or_default();
             }
-            KnownProperty::LoopFile(loop_file) => {
-                self.loop_file = loop_file.map(bool::from).unwrap_or_default();
+            KnownProperty::LoopFile { data } => {
+                self.loop_file = data.map(bool::from).unwrap_or_default();
             }
-            KnownProperty::LoopPlaylist(loop_playlist) => {
-                self.loop_playlist = loop_playlist.map(bool::from).unwrap_or_default();
+            KnownProperty::LoopPlaylist { data } => {
+                self.loop_playlist = data.map(bool::from).unwrap_or_default();
             }
-            KnownProperty::Speed(speed) => {
-                self.speed = speed.unwrap_or_default();
+            KnownProperty::Speed { data } => {
+                self.speed = data.unwrap_or_default();
             }
-            KnownProperty::Shuffle(shuffle) => {
-                self.shuffle = shuffle.unwrap_or_default();
+            KnownProperty::Shuffle { data } => {
+                self.shuffle = data.unwrap_or_default();
             }
-            KnownProperty::Volume(volume) => {
-                self.volume = volume.unwrap_or_default();
+            KnownProperty::Volume { data } => {
+                self.volume = data.unwrap_or_default();
             }
-            KnownProperty::Duration(duration) => {
-                self.duration = duration.unwrap_or_default();
+            KnownProperty::Duration { data } => {
+                self.duration = data.unwrap_or_default();
             }
-            KnownProperty::MediaTitle(media_title) => {
-                self.media_title = media_title.unwrap_or_default();
+            KnownProperty::MediaTitle { data } => {
+                self.media_title = data.unwrap_or_default();
             }
-            KnownProperty::Metadata(metadata) => {
-                self.metadata = metadata;
+            KnownProperty::Metadata { data } => {
+                self.metadata = data.unwrap_or_default();
             }
-            KnownProperty::TrackList(track_list) => {
-                self.track_list = track_list;
+            KnownProperty::TrackList { data } => {
+                self.track_list = data.unwrap_or_default();
             }
-            KnownProperty::Path(path) => {
-                self.path = path;
+            KnownProperty::Path { data } => {
+                self.path = data;
             }
-            KnownProperty::WorkingDirectory(working_directory) => {
-                self.working_directory = working_directory;
+            KnownProperty::WorkingDirectory { data } => {
+                self.working_directory = data;
             }
         }
     }

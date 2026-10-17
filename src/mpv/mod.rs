@@ -1,4 +1,4 @@
-use self::ipc::MpvIpcWorker;
+use self::ipc::{MpvIpcWorker, ReplySender};
 use serde::{
     Serialize,
     de::{DeserializeOwned, IgnoredAny},
@@ -15,25 +15,21 @@ pub(crate) use protocol::*;
 
 #[derive(Clone)]
 pub(crate) struct Mpv {
-    requests_tx: kanal::AsyncSender<(Command, oneshot::Sender<Result<serde_json::Value, String>>)>,
+    requests_tx: kanal::AsyncSender<(Command, ReplySender)>,
 }
 
 impl Mpv {
+    /// Starts talking to mpv over `stream`. Also returns mpv's events, in
+    /// batches of those that arrived together.
     pub(crate) fn new(
         stream: UnixStream,
-    ) -> (Self, oneshot::Sender<kanal::AsyncSender<Vec<Event>>>) {
+    ) -> (Self, kanal::AsyncReceiver<Vec<Event>>) {
         let (requests_tx, requests_rx) = kanal::bounded_async(0);
-        let (handshake_tx, handshake_rx) = oneshot::async_channel();
-        zruntime::spawn_local(MpvIpcWorker::new(stream, requests_rx, handshake_rx).run()).detach();
-        (Self { requests_tx }, handshake_tx)
-    }
-
-    pub(crate) fn subscribe(
-        handshake_tx: oneshot::Sender<kanal::AsyncSender<Vec<Event>>>,
-    ) -> anyhow::Result<kanal::AsyncReceiver<Vec<Event>>> {
-        let (events_tx, events) = kanal::bounded_async(0);
-        handshake_tx.send(events_tx)?;
-        Ok(events)
+        // Unbounded, so events are kept until the receiver is first read, and
+        // the worker never waits on it.
+        let (events_tx, events_rx) = kanal::unbounded_async();
+        zruntime::spawn_local(MpvIpcWorker::new(stream, requests_rx, events_tx).run()).detach();
+        (Self { requests_tx }, events_rx)
     }
 
     pub(crate) async fn run_command<T>(&self, command: impl Into<Command>) -> Result<T>

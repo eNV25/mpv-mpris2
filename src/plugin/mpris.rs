@@ -1,13 +1,12 @@
 use super::{art, state::StateDiff};
 use crate::{future::FutureSyncExt, mpv};
 use mpris_server::{
-    LoopStatus, Metadata, PlaybackRate, PlaybackStatus, PlayerInterface, RootInterface, Time,
-    TrackId, Volume, builder::MetadataBuilder,
+    LoopStatus, Metadata, PlaybackRate, PlaybackStatus, PlayerInterface, Property, RootInterface,
+    Time, TrackId, Volume, builder::MetadataBuilder,
 };
-use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, collections::BTreeMap, env, fs, mem, path::PathBuf, sync::OnceLock};
+use std::{borrow::Cow, env, fs, mem, path::PathBuf, sync::OnceLock};
 use url::Url;
-use zbus::{ObjectPath, Variant, fdo, names::InterfaceName, object_server::Interface};
+use zbus::{ObjectPath, fdo};
 use zruntime::lock::OnceCell;
 
 impl RootInterface for super::Player {
@@ -100,12 +99,12 @@ fn mpv_desktop_mime_types() -> Vec<String> {
 
 impl PlayerInterface for super::Player {
     async fn next(&self) -> fdo::Result<()> {
-        let cmd = mpv::NamedCommand::PlaylistNext { flags: None };
+        let cmd = mpv::NamedCommand::PlaylistNext;
         Ok(self.mpv.command(cmd).sync().await?)
     }
 
     async fn previous(&self) -> fdo::Result<()> {
-        let cmd = mpv::NamedCommand::PlaylistPrev { flags: None };
+        let cmd = mpv::NamedCommand::PlaylistPrev;
         Ok(self.mpv.command(cmd).sync().await?)
     }
 
@@ -114,7 +113,7 @@ impl PlayerInterface for super::Player {
     }
 
     async fn play_pause(&self) -> fdo::Result<()> {
-        let cmd = mpv::ListCommand::Cycle("pause", None);
+        let cmd = mpv::ListCommand::Cycle("pause");
         Ok(self.mpv.command(cmd).sync().await?)
     }
 
@@ -376,120 +375,66 @@ impl super::state::State {
     }
 }
 
+/// What changed when [`Player::update`](super::Player::update) replaced the state.
 #[derive(Default)]
-struct InterfaceChanges {
-    changed: BTreeMap<Property, Variant<'static>>,
-}
-
-impl InterfaceChanges {
-    async fn emit(
-        &self,
-        connection: &zbus::Connection,
-        interface: InterfaceName<'static>,
-    ) -> zbus::Result<()> {
-        if self.changed.is_empty() {
-            return Ok(());
-        }
-        // Every property is sent with its new value, so none are invalidated.
-        let invalidated: &[Property] = &[];
-        connection
-            .emit_signal(
-                None::<zbus::names::BusName<'static>>,
-                "/org/mpris/MediaPlayer2",
-                fdo::Properties::name(),
-                "PropertiesChanged",
-                &(interface, &self.changed, invalidated),
-            )
-            .await
-    }
-}
-
-#[derive(Default)]
-pub(crate) struct PropertyChanges {
-    root: InterfaceChanges,
-    player: InterfaceChanges,
-    art: Option<(PathBuf, u64)>,
-}
-
-impl PropertyChanges {
-    pub(crate) async fn emit(&self, connection: &zbus::Connection) -> zbus::Result<()> {
-        const ROOT: InterfaceName<'static> =
-            InterfaceName::from_static_str_unchecked("org.mpris.MediaPlayer2");
-        const PLAYER: InterfaceName<'static> =
-            InterfaceName::from_static_str_unchecked("org.mpris.MediaPlayer2.Player");
-        self.root.emit(connection, ROOT).await?;
-        self.player.emit(connection, PLAYER).await?;
-        Ok(())
-    }
-
-    pub(super) fn art(&mut self) -> Option<(PathBuf, u64)> {
-        self.art.take()
-    }
-
-    fn change(&mut self, property: Property, value: Variant<'static>) -> Option<Variant<'static>> {
-        if property.is_root() {
-            &mut self.root.changed
-        } else {
-            &mut self.player.changed
-        }
-        .insert(property, value)
-    }
+pub(crate) struct Changes {
+    /// MPRIS properties to send in `PropertiesChanged`.
+    pub(crate) properties: Vec<Property>,
+    /// Embedded art to extract: the file and its stream index.
+    pub(crate) embedded_art: Option<(PathBuf, u64)>,
 }
 
 impl super::Player {
-    pub(crate) async fn update(&self, other: super::state::State) -> PropertyChanges {
+    /// Replaces the state with `new`, and returns what changed.
+    pub(crate) async fn update(&self, new: super::state::State) -> Changes {
         use Property as P;
         use StateDiff as S;
 
-        let mut ret = PropertyChanges::default();
+        let mut changes = Changes::default();
         let mut state = self.state.write().await;
-        let other = mem::replace(&mut *state, other);
+        let old = mem::replace(&mut *state, new);
 
-        if let (state_art, other_art) = (
-            art::find(&state.track_list, &state.path, &state.working_directory),
-            art::find(&other.track_list, &other.path, &other.working_directory),
-        ) && state_art != other_art
-        {
-            match state_art {
+        let art = art::find(&state.track_list, &state.path, &state.working_directory);
+        if art != art::find(&old.track_list, &old.path, &old.working_directory) {
+            match art {
                 Some(art::Track::Embedded(path, index)) => {
-                    ret.art = Some((path, index));
+                    changes.embedded_art = Some((path, index));
                 }
-                Some(art::Track::External(url)) => {
-                    state.art_url = url.into();
-                }
-                _ => (),
+                Some(art::Track::External(url)) => state.art_url = Some(url),
+                None => (),
             }
         }
 
-        let diff = state.diff(&other);
+        let diff = state.diff(&old);
+        let properties = &mut changes.properties;
         if diff.contains(S::Fullscreen) {
-            ret.change(P::Fullscreen, state.fullscreen.into());
+            properties.push(P::Fullscreen(state.fullscreen));
         }
         if diff.contains(S::PlaylistEntryId) {
-            ret.change(P::CanPlay, state.playlist_entry_id.is_some().into());
-            ret.change(P::CanPause, state.playlist_entry_id.is_some().into());
+            properties.push(P::CanPlay(state.playlist_entry_id.is_some()));
+            properties.push(P::CanPause(state.playlist_entry_id.is_some()));
         }
         if diff.contains(S::Seekable) {
-            ret.change(P::CanSeek, state.seekable.into());
+            properties.push(P::CanSeek(state.seekable));
         }
         if diff.intersects(S::PlaylistCurrentPos | S::PlaylistCount) {
-            ret.change(P::CanGoNext, state.playlist_has_next().into());
-            ret.change(P::CanGoPrevious, state.playlist_has_previous().into());
+            properties.push(P::CanGoNext(state.playlist_has_next()));
+            properties.push(P::CanGoPrevious(state.playlist_has_previous()));
         }
         if diff.intersects(S::IdleActive | S::EofReached | S::Pause) {
-            ret.change(P::PlaybackStatus, state.playback_status().into());
+            properties.push(P::PlaybackStatus(state.playback_status()));
         }
         if diff.intersects(S::LoopFile | S::LoopPlaylist) {
-            ret.change(P::LoopStatus, state.loop_status().into());
+            properties.push(P::LoopStatus(state.loop_status()));
         }
         if diff.contains(S::Speed) {
-            ret.change(P::Rate, state.speed.into());
+            properties.push(P::Rate(state.speed));
         }
         if diff.contains(S::Shuffle) {
-            ret.change(P::Shuffle, state.shuffle.into());
+            properties.push(P::Shuffle(state.shuffle));
         }
         if diff.contains(S::Volume) {
-            ret.change(P::Volume, state.volume().into());
+            properties.push(P::Volume(state.volume()));
         }
         if diff.intersects(
             S::PlaylistEntryId
@@ -500,64 +445,11 @@ impl super::Player {
                 | S::Path
                 | S::WorkingDirectory,
         ) {
-            // The spec requires the new value, and clients that cache
+            // Sent with its value: the spec requires it, and clients that cache
             // properties (e.g. `playerctl --follow`) don't refetch invalidated ones.
-            ret.change(P::Metadata, state.metadata().into());
+            properties.push(P::Metadata(state.metadata()));
         }
-        ret
-    }
-}
-
-#[derive(Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-enum Property {
-    CanQuit,
-    Fullscreen,
-    CanSetFullscreen,
-    CanRaise,
-    HasTrackList,
-    Identity,
-    DesktopEntry,
-    SupportedUriSchemes,
-    SupportedMimeTypes,
-    PlaybackStatus,
-    LoopStatus,
-    Rate,
-    Shuffle,
-    Metadata,
-    Volume,
-    MinimumRate,
-    MaximumRate,
-    CanGoNext,
-    CanGoPrevious,
-    CanPlay,
-    CanPause,
-    CanSeek,
-}
-
-impl zbus::Type for Property {
-    const SIGNATURE: &'static zbus::Signature = <&str>::SIGNATURE;
-}
-
-impl zbus::Basic for Property {
-    const SIGNATURE_CHAR: char = <&str>::SIGNATURE_CHAR;
-    const SIGNATURE_STR: &'static str = <&str>::SIGNATURE_STR;
-}
-
-impl Property {
-    const fn is_root(&self) -> bool {
-        use Property::*;
-        matches!(
-            self,
-            CanQuit
-                | Fullscreen
-                | CanSetFullscreen
-                | CanRaise
-                | HasTrackList
-                | Identity
-                | DesktopEntry
-                | SupportedUriSchemes
-                | SupportedMimeTypes
-        )
+        changes
     }
 }
 

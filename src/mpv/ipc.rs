@@ -6,38 +6,44 @@ use futures_lite::{
     stream,
 };
 use slab::Slab;
-use std::{future, io::IoSlice, mem, task::Poll};
+use std::{future, task::Poll};
 use zruntime::net::unix::UnixStream;
+
+/// Where the reply to a command is sent.
+pub(super) type ReplySender = oneshot::Sender<Result<serde_json::Value, String>>;
+
+/// Request ID of the `playback-time` query sent when a seek finishes. Its
+/// reply becomes an [`Event::Seeked`]. Command request IDs are slab keys, so
+/// they are never negative.
+const SEEKED_REQUEST_ID: i64 = i64::MIN;
 
 pub(super) struct MpvIpcWorker {
     stream: UnixStream,
-    requests: kanal::AsyncReceiver<(Command, oneshot::Sender<Result<serde_json::Value, String>>)>,
-    events_handshake: oneshot::AsyncReceiver<kanal::AsyncSender<Vec<Event>>>,
+    requests: kanal::AsyncReceiver<(Command, ReplySender)>,
+    events: kanal::AsyncSender<Vec<Event>>,
 }
 
 impl MpvIpcWorker {
     pub(super) fn new(
         stream: UnixStream,
-        requests: kanal::AsyncReceiver<(
-            Command,
-            oneshot::Sender<Result<serde_json::Value, String>>,
-        )>,
-        events_handshake: oneshot::AsyncReceiver<kanal::AsyncSender<Vec<Event>>>,
+        requests: kanal::AsyncReceiver<(Command, ReplySender)>,
+        events: kanal::AsyncSender<Vec<Event>>,
     ) -> Self {
         Self {
             stream,
             requests,
-            events_handshake,
+            events,
         }
     }
 
-    pub(super) async fn run(mut self) {
+    pub(super) async fn run(self) {
         enum WorkerEvent {
-            EventsSender(Result<kanal::AsyncSender<Vec<Event>>, oneshot::RecvError>),
             Responses(Vec<Response>),
-            Command((Command, oneshot::Sender<Result<serde_json::Value, String>>)),
+            Command((Command, ReplySender)),
         }
 
+        // Collects every line that can be read without waiting, so events that
+        // arrive together are handled together.
         fn batch_ready_responses<T>(
             mut state: Option<T>,
         ) -> impl Future<Output = Option<(WorkerEvent, Option<T>)>>
@@ -79,42 +85,30 @@ impl MpvIpcWorker {
         }
 
         let (reader, mut writer) = io::split(self.stream);
-        let mut stream = {
-            let events_sender = stream::once_future(future::poll_fn(move |cx| {
-                self.events_handshake
-                    .poll(cx)
-                    .map(WorkerEvent::EventsSender)
-            }));
+        let mut worker_events = {
             let lines = BufReader::new(reader).split(b'\n');
             let responses = stream::unfold(Some(lines), batch_ready_responses);
             let requests = self.requests.stream().map(WorkerEvent::Command);
-            (events_sender, responses, requests).merge()
+            (responses, requests).merge()
         };
-        let mut requests: Slab<oneshot::Sender<Result<serde_json::Value, String>>> = Slab::new();
-        let mut events = Vec::new();
-        let mut events_sender = None;
+        // Commands waiting for a reply, keyed by request ID.
+        let mut pending: Slab<ReplySender> = Slab::new();
 
         let mut seeking = false;
-        while let Some(worker_event) = stream.next().await {
+        while let Some(worker_event) = worker_events.next().await {
             match worker_event {
-                WorkerEvent::EventsSender(Ok(new_events_sender)) => {
-                    events_sender = Some(new_events_sender);
-                }
-                WorkerEvent::EventsSender(Err(e)) => {
-                    tracing::error!(error = %e, "Failed to receive events sender");
-                }
                 WorkerEvent::Responses(responses) => {
-                    events.reserve(responses.len());
+                    let mut events = Vec::with_capacity(responses.len());
                     for response in responses {
                         match response {
                             Response::CommandResponseSuccess {
                                 data, request_id, ..
                             } => {
-                                if request_id == i64::MIN {
+                                if request_id == SEEKED_REQUEST_ID {
                                     if let Ok(playback_time) = serde_json::from_value(data) {
                                         events.push(Event::Seeked { playback_time });
                                     }
-                                } else if let Some(sender) = requests.try_remove(request_id as _)
+                                } else if let Some(sender) = pending.try_remove(request_id as _)
                                     && !sender.is_closed()
                                     && let Err(e) = sender.send(Ok(data))
                                 {
@@ -122,9 +116,9 @@ impl MpvIpcWorker {
                                 }
                             }
                             Response::CommandResponseFailure { request_id, error } => {
-                                if request_id == i64::MIN {
+                                if request_id == SEEKED_REQUEST_ID {
                                     tracing::error!(error = %error, "Failed get playback-time after seek event");
-                                } else if let Some(sender) = requests.try_remove(request_id as _)
+                                } else if let Some(sender) = pending.try_remove(request_id as _)
                                     && !sender.is_closed()
                                     && let Err(e) = sender.send(Err(error.into()))
                                 {
@@ -139,12 +133,10 @@ impl MpvIpcWorker {
                                         let request = Request {
                                             command: ListCommand::GetProperty("playback-time")
                                                 .into(),
-                                            request_id: i64::MIN,
+                                            request_id: SEEKED_REQUEST_ID,
                                             r#async: Default::default(),
                                         };
-                                        if let Err(e) =
-                                            send_request(&mut writer, request).await
-                                        {
+                                        if let Err(e) = send_request(&mut writer, &request).await {
                                             tracing::error!(error = %e, "Failed to send IPC request");
                                         }
                                     }
@@ -153,20 +145,25 @@ impl MpvIpcWorker {
                                 events.push(event);
                             }
                             Response::UnknownEvent { event } => {
-                                events.push(Event::Unknown(event));
+                                tracing::debug!(%event, "Ignoring unknown event");
                             }
                         }
+                    }
+                    if !events.is_empty()
+                        && let Err(e) = self.events.send(events).await
+                    {
+                        tracing::error!(error = %e, "Failed to send MPV events");
                     }
                 }
                 WorkerEvent::Command((command, sender)) => {
                     if !sender.is_closed() {
-                        let entry = requests.vacant_entry();
+                        let entry = pending.vacant_entry();
                         let request = Request {
                             command,
                             request_id: entry.key() as _,
                             r#async: Default::default(),
                         };
-                        if let Err(e) = send_request(&mut writer, request).await {
+                        if let Err(e) = send_request(&mut writer, &request).await {
                             tracing::error!(error = %e, "Failed to send IPC request");
                             if let Err(e) = sender.send(Err("Failed to send IPC command".into())) {
                                 tracing::error!(error = %e, "Failed to send command reply");
@@ -177,35 +174,13 @@ impl MpvIpcWorker {
                     }
                 }
             }
-            if !events.is_empty()
-                && let Some(sender) = &events_sender
-                && let events = mem::take(&mut events)
-                && let Err(e) = sender.send(events).await
-            {
-                tracing::error!(error = %e, "Failed to send MPV event");
-            }
-        }
-        if let Some(sender) = events_sender.take()
-            && let Err(e) = sender.close()
-        {
-            tracing::error!(error = %e, "Failed to close MPV events sender");
         }
     }
 }
 
-async fn send_request(w: &mut (impl AsyncWrite + Unpin), request: Request) -> io::Result<()> {
-    let msg = match serde_json::to_vec(&request) {
-        Ok(msg) => msg,
-        Err(e) => return Err(io::Error::new(io::ErrorKind::InvalidData, e)),
-    };
-    let mut bufs = &mut [IoSlice::new(&msg), IoSlice::new(b"\n")][..];
-    while !bufs.is_empty() {
-        let n = w.write_vectored(bufs).await?;
-        if n == 0 {
-            return Err(io::ErrorKind::WriteZero.into());
-        }
-        IoSlice::advance_slices(&mut bufs, n);
-    }
-    w.flush().await?;
-    Ok(())
+async fn send_request(w: &mut (impl AsyncWrite + Unpin), request: &Request) -> io::Result<()> {
+    let mut msg = serde_json::to_vec(request)?;
+    msg.push(b'\n');
+    w.write_all(&msg).await?;
+    w.flush().await
 }

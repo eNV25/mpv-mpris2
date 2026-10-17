@@ -22,12 +22,15 @@ impl State {
         (this, rx)
     }
 
+    /// Stops any extraction in progress, and deletes the current art file.
     pub(super) fn clear(&mut self) {
-        drop(self.task.take());
-        drop(self.file.take());
+        self.task = None;
+        self.file = None;
     }
 
-    pub(super) fn spawn_worker(&mut self, runtime: &LocalRuntime, (path, index): (PathBuf, u64)) {
+    /// Extracts the image in stream `index` of `path`, replacing any extraction
+    /// in progress. The file is sent to the receiver returned by [`State::new`].
+    pub(super) fn spawn_worker(&mut self, runtime: &LocalRuntime, path: PathBuf, index: u64) {
         let tx = self.tx.clone();
         self.task = Some(zruntime::spawn_local({
             let runtime = runtime.clone();
@@ -84,6 +87,8 @@ pub(super) enum Track {
     External(Url),
 }
 
+/// Finds the current file's cover art. External art beats embedded art, and
+/// album art beats other images. An image played on its own is its own art.
 pub(super) fn find(
     track_list: &[mpv::Track],
     path: &Option<mpv::Path>,
@@ -100,21 +105,21 @@ pub(super) fn find(
             mpv::Track::ExternalAlbumArt {
                 external_filename, ..
             } => {
-                _ = art_filename.insert(external_filename);
+                art_filename = Some(external_filename);
             }
             mpv::Track::ExternalImage {
                 external_filename, ..
             } => {
-                _ = art_filename.get_or_insert(external_filename);
+                art_filename.get_or_insert(external_filename);
             }
             &mpv::Track::EmbeddedAlbumArt { ff_index, .. } => {
-                _ = art_index.insert(ff_index);
+                art_index = Some(ff_index);
             }
             &mpv::Track::EmbeddedImage { ff_index, .. } => {
                 if track_list.len() == 1 {
                     art_filename = path;
                 } else {
-                    _ = art_index.get_or_insert(ff_index);
+                    art_index.get_or_insert(ff_index);
                 }
             }
             mpv::Track::None(_) => (),
@@ -123,12 +128,12 @@ pub(super) fn find(
     if let Some(file) = art_filename {
         let path = working_directory.as_ref().map(|dir| dir.join(file));
         let path = path.unwrap_or_else(|| file.clone());
-        return Track::External(Url::from_file_path(path).ok()?).into();
+        return Some(Track::External(Url::from_file_path(path).ok()?));
     }
     if let Some(index) = art_index
         && let Some(path) = path
     {
-        return Track::Embedded(path.clone(), index).into();
+        return Some(Track::Embedded(path.clone(), index));
     }
     None
 }
