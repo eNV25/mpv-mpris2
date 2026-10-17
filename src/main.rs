@@ -2,15 +2,22 @@ use crate::{mpv::Mpv, plugin::Player};
 use compact_str::format_compact;
 use mpris_server::Server;
 use smol::LocalExecutor;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{filter::Targets, prelude::*};
 
 mod future;
 mod mpv;
 mod plugin;
 
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+    // `Targets` handles `RUST_LOG=target=level,...` without `EnvFilter`'s
+    // regex engine, which is about a sixth of the binary.
+    let filter: Targets = std::env::var("RUST_LOG")
+        .ok()
+        .and_then(|directives| directives.parse().ok())
+        .unwrap_or_else(|| Targets::new().with_default(tracing::Level::ERROR));
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(filter)
         .init();
 
     let ex = LocalExecutor::new();
