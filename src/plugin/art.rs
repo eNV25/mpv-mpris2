@@ -1,12 +1,12 @@
 use crate::mpv;
 use compact_str::format_compact;
-use smol::process::Command;
 use std::{path::PathBuf, process::Stdio};
 use tempfile::NamedTempFile;
 use url::Url;
+use zruntime::{LocalRuntime, process::Command};
 
 pub(super) struct State {
-    task: Option<smol::Task<()>>,
+    task: Option<zruntime::Task<()>>,
     file: Option<NamedTempFile>,
     tx: kanal::AsyncSender<NamedTempFile>,
 }
@@ -27,11 +27,14 @@ impl State {
         drop(self.file.take());
     }
 
-    pub(super) fn spawn_worker(&mut self, ex: &smol::LocalExecutor, (path, index): (PathBuf, u64)) {
+    pub(super) fn spawn_worker(&mut self, runtime: &LocalRuntime, (path, index): (PathBuf, u64)) {
         let tx = self.tx.clone();
-        self.task = Some(ex.spawn(async move {
-            if let Err(e) = worker(tx, path, index).await {
-                tracing::error!(error = %e, "Failed to extract embedded art");
+        self.task = Some(zruntime::spawn_local({
+            let runtime = runtime.clone();
+            async move {
+                if let Err(e) = worker(&runtime, tx, path, index).await {
+                    tracing::error!(error = %e, "Failed to extract embedded art");
+                }
             }
         }));
     }
@@ -42,6 +45,7 @@ impl State {
 }
 
 async fn worker(
+    runtime: &LocalRuntime,
     tx: kanal::AsyncSender<NamedTempFile>,
     path: PathBuf,
     index: u64,
@@ -60,7 +64,7 @@ async fn worker(
         .stdout(file.reopen()?)
         .stderr(Stdio::null())
         .kill_on_drop(true)
-        .spawn()?
+        .spawn(runtime)?
         .status()
         .await?;
     anyhow::ensure!(status.success(), "ffmpeg failed: {status}");

@@ -5,11 +5,10 @@ use mpris_server::{
     TrackId, Volume, builder::MetadataBuilder,
 };
 use serde::{Deserialize, Serialize};
-use smol::lock::{OnceCell, RwLockWriteGuard};
-use std::path::PathBuf;
-use std::{borrow::Cow, collections::BTreeMap, env, fs, mem, sync::OnceLock};
+use std::{borrow::Cow, collections::BTreeMap, env, fs, mem, path::PathBuf, sync::OnceLock};
 use url::Url;
-use zbus::{fdo, names::InterfaceName, object_server::Interface, zvariant, zvariant::ObjectPath};
+use zbus::{ObjectPath, Variant, fdo, names::InterfaceName, object_server::Interface};
+use zruntime::lock::OnceCell;
 
 impl RootInterface for super::Player {
     async fn raise(&self) -> fdo::Result<()> {
@@ -379,7 +378,7 @@ impl super::state::State {
 
 #[derive(Default)]
 struct InterfaceChanges {
-    changed: BTreeMap<Property, zvariant::Value<'static>>,
+    changed: BTreeMap<Property, Variant<'static>>,
 }
 
 impl InterfaceChanges {
@@ -427,11 +426,7 @@ impl PropertyChanges {
         self.art.take()
     }
 
-    fn change(
-        &mut self,
-        property: Property,
-        value: zvariant::Value<'static>,
-    ) -> Option<zvariant::Value<'static>> {
+    fn change(&mut self, property: Property, value: Variant<'static>) -> Option<Variant<'static>> {
         if property.is_root() {
             &mut self.root.changed
         } else {
@@ -466,7 +461,6 @@ impl super::Player {
             }
         }
 
-        let state = RwLockWriteGuard::downgrade(state);
         let diff = state.diff(&other);
         if diff.contains(S::Fullscreen) {
             ret.change(P::Fullscreen, state.fullscreen.into());
@@ -514,8 +508,7 @@ impl super::Player {
     }
 }
 
-#[derive(Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, zvariant::Type)]
-#[zvariant(signature = "s")]
+#[derive(Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 enum Property {
     CanQuit,
     Fullscreen,
@@ -539,6 +532,15 @@ enum Property {
     CanPlay,
     CanPause,
     CanSeek,
+}
+
+impl zbus::Type for Property {
+    const SIGNATURE: &'static zbus::Signature = <&str>::SIGNATURE;
+}
+
+impl zbus::Basic for Property {
+    const SIGNATURE_CHAR: char = <&str>::SIGNATURE_CHAR;
+    const SIGNATURE_STR: &'static str = <&str>::SIGNATURE_STR;
 }
 
 impl Property {

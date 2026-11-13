@@ -1,7 +1,8 @@
 use crate::mpv::{self, Mpv};
 use futures_concurrency::stream::Merge;
 use mpris_server::Signal;
-use smol::{LocalExecutor, lock::RwLock, prelude::*};
+use futures_lite::prelude::*;
+use zruntime::{LocalRuntime, lock::RwLock};
 use tempfile::NamedTempFile;
 use url::Url;
 
@@ -16,7 +17,7 @@ pub(crate) struct Player {
 }
 
 pub(crate) async fn main_loop(
-    ex: &LocalExecutor<'_>,
+    runtime: &LocalRuntime,
     server: mpris_server::Server<Player>,
     handshake_tx: oneshot::Sender<kanal::AsyncSender<Vec<mpv::Event>>>,
 ) -> anyhow::Result<()> {
@@ -81,7 +82,7 @@ pub(crate) async fn main_loop(
         }
         let mut changes = server.imp().update(state).await;
         if let Some(change) = changes.art() {
-            art.spawn_worker(ex, change);
+            art.spawn_worker(runtime, change);
         }
         if let Err(e) = changes.emit(server.connection()).await {
             tracing::error!(error = %e, "Failed to emit changes");

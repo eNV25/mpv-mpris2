@@ -1,7 +1,7 @@
 use crate::mpv::{self, Mpv};
 use derive_deftly::{Deftly, derive_deftly_adhoc};
 use enumflags2::{BitFlags, bitflags};
-use smol::lock::RwLock;
+use zruntime::lock::RwLock;
 use std::{collections::BTreeMap, path::PathBuf};
 use url::Url;
 

@@ -3,10 +3,10 @@ use serde::{
     Serialize,
     de::{DeserializeOwned, IgnoredAny},
 };
-use smol::{LocalExecutor, net::unix::UnixStream};
 use std::fmt::Debug;
 use thiserror::Error;
 use zbus::fdo;
+use zruntime::net::unix::UnixStream;
 
 mod ipc;
 mod protocol;
@@ -20,13 +20,11 @@ pub(crate) struct Mpv {
 
 impl Mpv {
     pub(crate) fn new(
-        ex: &LocalExecutor,
         stream: UnixStream,
     ) -> (Self, oneshot::Sender<kanal::AsyncSender<Vec<Event>>>) {
         let (requests_tx, requests_rx) = kanal::bounded_async(0);
         let (handshake_tx, handshake_rx) = oneshot::async_channel();
-        ex.spawn(MpvIpcWorker::new(stream, requests_rx, handshake_rx).run())
-            .detach();
+        zruntime::spawn_local(MpvIpcWorker::new(stream, requests_rx, handshake_rx).run()).detach();
         (Self { requests_tx }, handshake_tx)
     }
 

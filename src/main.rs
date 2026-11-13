@@ -1,8 +1,8 @@
 use crate::{mpv::Mpv, plugin::Player};
 use compact_str::format_compact;
 use mpris_server::Server;
-use smol::LocalExecutor;
 use tracing_subscriber::{filter::Targets, prelude::*};
+use zruntime::{LocalRuntime, net::unix::UnixStream};
 
 mod future;
 mod mpv;
@@ -20,9 +20,10 @@ fn main() -> anyhow::Result<()> {
         .with(filter)
         .init();
 
-    let ex = LocalExecutor::new();
-    smol::block_on(ex.run(async {
-        let (mpv, handshake_tx) = Mpv::new(&ex, plugin::args::mpv_ipc_fd()?.try_into()?);
+    let runtime = LocalRuntime::new()?;
+    runtime.block_on(async {
+        let stream = UnixStream::from_std(&runtime, plugin::args::mpv_ipc_fd()?.into())?;
+        let (mpv, handshake_tx) = Mpv::new(stream);
 
         let Some(pid): Option<usize> = mpv.get_property("pid").await? else {
             anyhow::bail!("No PID found");
@@ -31,8 +32,8 @@ fn main() -> anyhow::Result<()> {
         let name = format_compact!("mpv.instance{}", pid);
         let server = Server::new(&name, Player::new(mpv).await?).await?;
 
-        plugin::main_loop(&ex, server, handshake_tx).await?;
+        plugin::main_loop(&runtime, server, handshake_tx).await?;
 
         Ok(())
-    }))
+    })
 }
