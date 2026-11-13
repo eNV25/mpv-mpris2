@@ -1,13 +1,13 @@
 use super::protocol::{Command, Event, ListCommand, Request, Response};
 use futures_concurrency::stream::Merge;
-use slab::Slab;
-use smol::{io::BufReader, net::unix::UnixStream, prelude::*, stream};
-use std::{
-    future,
-    io::{self, IoSlice},
-    mem,
-    task::Poll,
+use futures_lite::{
+    io::{self, BufReader},
+    prelude::*,
+    stream,
 };
+use slab::Slab;
+use std::{future, io::IoSlice, mem, task::Poll};
+use zruntime::net::unix::UnixStream;
 
 pub(super) struct MpvIpcWorker {
     stream: UnixStream,
@@ -78,13 +78,14 @@ impl MpvIpcWorker {
             })
         }
 
+        let (reader, mut writer) = io::split(self.stream);
         let mut stream = {
             let events_sender = stream::once_future(future::poll_fn(move |cx| {
                 self.events_handshake
                     .poll(cx)
                     .map(WorkerEvent::EventsSender)
             }));
-            let lines = BufReader::new(self.stream.clone()).split(b'\n');
+            let lines = BufReader::new(reader).split(b'\n');
             let responses = stream::unfold(Some(lines), batch_ready_responses);
             let requests = self.requests.stream().map(WorkerEvent::Command);
             (events_sender, responses, requests).merge()
@@ -142,7 +143,7 @@ impl MpvIpcWorker {
                                             r#async: Default::default(),
                                         };
                                         if let Err(e) =
-                                            send_request(&mut self.stream, request).await
+                                            send_request(&mut writer, request).await
                                         {
                                             tracing::error!(error = %e, "Failed to send IPC request");
                                         }
@@ -165,7 +166,7 @@ impl MpvIpcWorker {
                             request_id: entry.key() as _,
                             r#async: Default::default(),
                         };
-                        if let Err(e) = send_request(&mut self.stream, request).await {
+                        if let Err(e) = send_request(&mut writer, request).await {
                             tracing::error!(error = %e, "Failed to send IPC request");
                             if let Err(e) = sender.send(Err("Failed to send IPC command".into())) {
                                 tracing::error!(error = %e, "Failed to send command reply");

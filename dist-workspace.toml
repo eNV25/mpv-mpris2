@@ -3,7 +3,7 @@ members = ["cargo:."]
 
 [dist]
 dist = true
-cargo-dist-version = "0.32.0"
+cargo-dist-version = "0.33.1"
 packages = ["mpv-mpris2"]
 targets = ["x86_64-unknown-linux-musl"]
 cargo-auditable = true
