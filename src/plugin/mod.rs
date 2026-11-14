@@ -1,10 +1,10 @@
 use crate::mpv::{self, Mpv};
 use futures_concurrency::stream::Merge;
-use mpris_server::Signal;
 use futures_lite::prelude::*;
-use zruntime::{LocalRuntime, lock::RwLock};
+use mpris_server::Signal;
 use tempfile::NamedTempFile;
 use url::Url;
+use zruntime::{LocalRuntime, lock::RwLock};
 
 pub(crate) mod args;
 mod art;

@@ -1,10 +1,10 @@
 use crate::mpv::{self, Mpv};
 use derive_deftly::{Deftly, derive_deftly_adhoc};
 use enumflags2::{BitFlags, bitflags};
-use zruntime::lock::RwLock;
 use std::{collections::BTreeMap, path::PathBuf};
 use strum::IntoEnumIterator;
 use url::Url;
+use zruntime::lock::RwLock;
 
 #[derive(Clone, Debug, Default, Deftly)]
 #[derive_deftly_adhoc]

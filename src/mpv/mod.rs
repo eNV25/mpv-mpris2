@@ -21,9 +21,7 @@ pub(crate) struct Mpv {
 impl Mpv {
     /// Starts talking to mpv over `stream`. Also returns mpv's events, in
     /// batches of those that arrived together.
-    pub(crate) fn new(
-        stream: UnixStream,
-    ) -> (Self, kanal::AsyncReceiver<Vec<Event>>) {
+    pub(crate) fn new(stream: UnixStream) -> (Self, kanal::AsyncReceiver<Vec<Event>>) {
         let (requests_tx, requests_rx) = kanal::bounded_async(0);
         // Unbounded, so events are kept until the receiver is first read, and
         // the worker never waits on it.
