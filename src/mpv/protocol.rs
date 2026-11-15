@@ -212,6 +212,7 @@ pub(crate) enum Property {
     /// A property that isn't known, or whose value didn't parse.
     Unknown {
         name: CompactString,
+        #[serde(default)]
         data: Value,
     },
 }
@@ -380,6 +381,19 @@ mod tests {
             };
             assert_eq!(KnownPropertyName::from(&property), name);
         }
+    }
+
+    #[test]
+    fn unknown_property_parses_without_data() {
+        let unknown_name = "some-unknown-property";
+        let line = serde_json::json!({ "event": "property-change", "id": 0, "name": unknown_name })
+            .to_string();
+        let response: Response = serde_json::from_str(&line).unwrap();
+        let Response::Event(Event::PropertyChange(Property::Unknown { name, .. })) = response
+        else {
+            panic!("{line} didn't parse as a property");
+        };
+        assert_eq!(name, unknown_name);
     }
 
     // Unit variants must still match when mpv sends fields the plugin ignores.
